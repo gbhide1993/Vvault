@@ -73,15 +73,18 @@ def set_cached_answer(question: str, data):
     q_hash = get_hash(question)
 
     insert_cache(
-        question=question,
-        question_hash=q_hash,
-        embedding=embedding,
-        answer=answer,
-        confidence=confidence,
-        status="pending",
-        source=source,
-        source_text=source_text,  
-        run_id=run_id  
-    )
+    question=question,
+    question_hash=q_hash,
+    embedding=embedding,
+    answer=answer,
+    confidence=confidence,
+    status="pending",
+    source=source,
+    justification=data.get("justification", ""),
+    raw_context=data.get("raw_context", ""),
+    matched_question=data.get("matched_question"),
+    source_text=data.get("source_text"),
+    run_id=data.get("run_id"),
+)
 
 

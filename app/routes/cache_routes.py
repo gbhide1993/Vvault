@@ -171,7 +171,8 @@ def get_all_cache(run_id: str = None):
         return {"error": "run_id is required"}
     
     cur.execute("""
-        SELECT id, question, answer, confidence, source, source_text, status, justification, matched_question, created_at, updated_at
+        SELECT id, question, answer, confidence, source, source_text, status, 
+        justification, raw_context, matched_question, created_at, updated_at
         FROM qa_cache
         WHERE (%s IS NULL OR run_id = %s)        
         ORDER BY id DESC

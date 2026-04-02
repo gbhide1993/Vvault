@@ -97,17 +97,7 @@ async def upload_excel(file: UploadFile = File(...)):
                 matched_question=cached.get("matched_question") if isinstance(cached, dict) else None,
             )
 
-            set_cached_answer(
-                question,
-                {
-                    "answer": answer_obj.answer,
-                    "source": cached.get("source", "cache") if isinstance(cached, dict) else "cache",
-                    "confidence": int(answer_obj.confidence * 100),
-                    "source_text": source_text,
-                    "run_id": run_id,
-                    
-                },
-            )
+            
 
         else:
             init_template_embeddings_once()
@@ -246,7 +236,7 @@ Answer:
                         "source_text": source_text,
                         "run_id": run_id,
                         "justification": getattr(answer_obj, "justification", ""),
-                        "raw_context": locals().get("context", ""),
+                        "raw_context": context if answer_obj.source == "llm" else "",
                         "matched_question": getattr(answer_obj, "matched_question", None),
                     },
                 )
