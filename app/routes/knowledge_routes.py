@@ -1,0 +1,95 @@
+from fastapi import APIRouter, UploadFile, File, HTTPException
+
+from app.services.knowledge_service import (
+    chunk_text,
+    store_chunks,
+    extract_text_from_pdf
+)
+
+router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
+
+
+# -----------------------------
+# UPLOAD KNOWLEDGE FILE (PDF + TXT)
+# -----------------------------
+@router.post("/upload")
+async def upload_knowledge(file: UploadFile = File(...)):
+
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Invalid file")
+
+    content = await file.read()
+
+    # 🔥 HANDLE PDF
+    if file.filename.lower().endswith(".pdf"):
+        text = extract_text_from_pdf(content)
+
+    # 🔥 HANDLE TEXT
+    elif file.filename.lower().endswith(".txt"):
+        try:
+            text = content.decode("utf-8", errors="ignore")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Text decoding failed")
+
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Only .pdf or .txt files supported"
+        )
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="No readable content found")
+
+    chunks = chunk_text(text)
+
+    if len(chunks) == 0:
+        raise HTTPException(status_code=400, detail="No valid chunks")
+
+    store_chunks(chunks, source=file.filename)
+
+    return {
+        "message": f"{len(chunks)} chunks stored",
+        "filename": file.filename
+    }
+
+def get_uploaded_sources():
+    from app.services.cache_db import get_conn  # reuse existing connection
+
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+
+        cur.execute("""
+            SELECT DISTINCT source
+            FROM knowledge_base
+            ORDER BY source;
+        """)
+
+        rows = cur.fetchall()
+
+        cur.close()
+        conn.close()
+
+        return [r[0] for r in rows]
+
+    except Exception as e:
+        print("❌ get_uploaded_sources error:", str(e))
+        return []
+
+
+@router.get("/sources")
+def get_sources():
+    try:
+        from app.services.knowledge_service import get_uploaded_sources
+        return get_uploaded_sources()
+    except Exception as e:
+        print("❌ /sources error:", str(e))
+        return {"error": str(e)}
+# -----------------------------
+# HEALTH CHECK
+# -----------------------------
+@router.get("/health")
+def health():
+    return {"status": "knowledge service running"}
+
+

@@ -1,0 +1,215 @@
+body {
+  font-family: 'Segoe UI', sans-serif;
+  background: #f4f6f8;
+  margin: 0;
+  padding: 20px;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.section {
+  background: white;
+  padding: 20px;
+  margin-bottom: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+}
+
+.subtext {
+  color: #666;
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+
+button {
+  background: #2c7be5;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1a68d1;
+}
+
+button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+#progressBarContainer {
+  width: 100%;
+  background: #eee;
+  height: 10px;
+  border-radius: 5px;
+  margin-bottom: 8px;
+}
+
+#progressBar {
+  width: 0%;
+  height: 100%;
+  background: #2c7be5;
+  transition: width 0.3s ease;
+}
+
+#progressText {
+  font-size: 14px;
+  color: #333;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 10px;
+}
+
+th {
+  background: #f0f2f5;
+  text-align: left;
+}
+
+td, th {
+  padding: 10px;
+  border: 1px solid #ddd;
+}
+
+.action-bar {
+  margin-top: 15px;
+}
+
+.status-text {
+  margin-top: 10px;
+  font-size: 14px;
+  color: green;
+}
+
+.center-box {
+  max-width: 300px;
+  margin: 100px auto;
+  text-align: center;
+}
+
+/* Step indicators */
+.step-status {
+  display: flex;
+  gap: 30px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #999;
+  font-size: 14px;
+}
+
+.circle {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #ccc;
+}
+
+.step.active .circle {
+  background: #2c7be5;
+}
+
+.step.done .circle {
+  background: #28a745;
+}
+
+.step.active span {
+  color: #2c7be5;
+  font-weight: 500;
+}
+
+.step.done span {
+  color: #28a745;
+}
+
+
+/* Confidence badge */
+.badge {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: bold;
+  color: white;
+}
+
+.badge.green { background: #28a745; }
+.badge.orange { background: #f0ad4e; }
+.badge.red { background: #dc3545; }
+
+/* Status tag */
+.status {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.status.approved { color: green; }
+.status.pending { color: orange; }
+.status.rejected { color: red; }
+
+
+#previewTable {
+  width: 100%;
+  table-layout: fixed;
+}
+
+#previewTable td, #previewTable th {
+  font-size: 13px;
+  padding: 8px;
+  vertical-align: top;
+}
+
+.question-cell {
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+
+#previewTable {
+  width: 100%;
+  table-layout: fixed;
+}
+
+#previewTable th, #previewTable td {
+  padding: 8px;
+  font-size: 13px;
+  vertical-align: top;
+}
+
+#previewTable th:first-child,
+#previewTable td:first-child {
+  width: 40px;
+  text-align: center;
+}
+
+#previewTable th:nth-child(2) { width: 30%; }
+#previewTable th:nth-child(3) { width: 40%; }
+#previewTable th:nth-child(4) { width: 10%; }
+#previewTable th:nth-child(5) { width: 10%; }
+#previewTable th:nth-child(6) { width: 10%; }
+
+.question-cell {
+  font-size: 12px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.badge {
+  display: inline-block;
+  min-width: 70px;
+  text-align: center;
+}

@@ -1,0 +1,177 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Vvault</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="login-container" class="center-box">
+  <h2>Vvault</h2>
+  <input type="text" id="username" placeholder="Enter username">
+  <button onclick="login()">Login</button>
+</div>
+
+<!-- MAIN APP -->
+<div id="app-container" style="display:none;">
+
+  <!-- HEADER -->
+  <div class="header">
+    <h2>Vvault Dashboard</h2>
+    <button onclick="logout()">Logout</button>
+  </div>
+
+  <!-- STEP 1 -->
+  <div class="section">
+    <h3>Step 1: Upload Knowledge Base</h3>
+    <p class="subtext">Upload company policies, security docs (PDF/TXT)</p>
+
+    <input type="file" id="knowledgeFile">
+    <button onclick="uploadKnowledge()">Upload</button>
+
+    <div id="knowledgeList" style="margin-top:10px; font-size:13px;"></div>
+    <div id="knowledgeStatus" class="status-text"></div>
+  </div>
+
+  <!-- STEP 2 -->
+  <div class="section">
+    <h3>Step 2: Upload Questionnaire</h3>
+    <p class="subtext">Upload SOC2 / security questionnaire (Excel)</p>
+
+    <input type="file" id="excelFile">
+    <button onclick="runAutofill()">Run Autofill</button>
+  </div>
+
+  <!-- STATUS -->
+  <div class="section">
+    <h3>Status</h3>
+
+    <div class="step-status">
+      <div class="step" id="step-knowledge">
+        <div class="circle"></div>
+        <span>Knowledge</span>
+      </div>
+
+      <div class="step" id="step-processing">
+        <div class="circle"></div>
+        <span>Processing</span>
+      </div>
+
+      <div class="step" id="step-complete">
+        <div class="circle"></div>
+        <span>Completed</span>
+      </div>
+    </div>
+
+    <div id="progressText">Idle</div>
+  </div>
+
+  <!-- SUMMARY -->
+  <div id="summaryBar" style="margin-bottom:12px; font-weight:500;"></div>
+
+  <!-- ACTIONS -->
+  <div style="margin-bottom:10px; display:flex; gap:10px;">
+    <button onclick="autoApprove()">Auto Approve</button>
+    <button onclick="downloadApproved()">Download Approved Only</button>
+  </div>
+
+  <!-- STEP 3 -->
+  <div class="section">
+    <h3>Step 3: Review Answers</h3>
+    <p>Review generated answers before downloading</p>
+
+    <!-- SEARCH + FILTER + ACTIONS -->
+    <div style="display:flex; justify-content:space-between; margin-bottom:10px; gap:10px;">
+
+      <div style="display:flex; gap:10px;">
+        <input 
+          type="text" 
+          id="searchInput" 
+          placeholder="Search questions..." 
+          oninput="filterTable()"
+          style="padding:6px; width:250px;"
+        />
+
+        <button onclick="toggleLowConfidence()" id="lowFilterBtn">
+          Show Low Confidence
+        </button>
+      </div>
+
+      <div>
+        <button onclick="bulkApprove()">Approve Selected</button>
+        <button onclick="bulkReject()">Reject Selected</button>
+      </div>
+
+    </div>
+
+    <!-- TABLE -->
+    <table id="previewTable">
+      <thead>
+        <tr>
+          <th><input type="checkbox" onclick="toggleAll(this)" /></th>
+          <th>Question</th>
+          <th>Answer</th>
+          <th>Confidence</th>
+          <th>Source</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <button onclick="downloadFinal()">Download Final Excel</button>
+  </div>
+
+  <div id="paginationControls"></div>
+
+  <!-- AUDIT LOGS -->
+  <div class="section">
+    <h3>Audit Logs</h3>
+    <table id="auditTable">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Action</th>
+          <th>Question</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+  <!-- USER MANAGEMENT -->
+  <div class="section">
+    <h3>User Management (Admin Only)</h3>
+
+    <div style="margin-bottom:10px;">
+      <input id="newUsername" placeholder="Username" />
+      <select id="newUserRole">
+        <option value="viewer">Viewer</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button onclick="createUser()">Create User</button>
+    </div>
+
+    <table id="userTable">
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Role</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script src="app.js"></script>
+
+</body>
+</html>
+

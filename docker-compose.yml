@@ -1,0 +1,57 @@
+
+services:
+
+  db:
+    image: ankane/pgvector
+    container_name: vvault_db
+    environment:
+      POSTGRES_DB: vvault
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  backend:
+    build: .
+    container_name: vvault_backend
+    depends_on:
+      - db
+    environment:
+      DB_HOST: db
+      DB_NAME: vvault
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_PORT: 5432
+    ports:
+      - "8000:8000"
+    volumes:
+       - .:/app  
+
+  frontend:
+      build: ./frontend
+      ports:
+        - "3000:80"
+      depends_on:
+        - backend
+
+
+  ollama:
+    image: ollama/ollama
+    container_name: vvault_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama    
+    entrypoint: >
+      sh -c "
+      ollama serve &
+      sleep 5 &&
+      ollama pull nomic-embed-text &&
+      wait
+      "
+
+volumes:
+  pgdata:
+  ollama_data:
