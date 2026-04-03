@@ -1,5 +1,35 @@
 const BASE_URL = "/api";
 
+// ---------- INIT ----------
+async function initApp() {
+  const token = localStorage.getItem("token");
+  if (!token) {
+    document.getElementById("login-container").style.display = "block";
+    return;
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/me`, {
+      headers: authHeaders()
+    });
+    if (!res.ok) {
+      localStorage.removeItem("token");
+      localStorage.removeItem("user");
+      localStorage.removeItem("role");
+      document.getElementById("login-container").style.display = "block";
+      return;
+    }
+    document.getElementById("login-container")?.style.setProperty("display", "none");
+    document.getElementById("setup-container")?.style.setProperty("display", "none");
+    showApp();
+  } catch (err) {
+    console.error("initApp error:", err);
+    document.getElementById("login-container").style.display = "block";
+  }
+}
+
+document.addEventListener("DOMContentLoaded", initApp);
+
 let selectedIds = new Set();
 let finalFileBlob = null;
 let isProcessing = false;
@@ -82,9 +112,16 @@ function getConfidenceMeta(confidence) {
 }
 
 
-// ✅ NEW (Audit user)
 function getCurrentUser() {
-  return (localStorage.getItem("user") || "").trim().toLowerCase();
+  return localStorage.getItem("user") || localStorage.getItem("username") || "";
+}
+
+function getToken() {
+  return localStorage.getItem("token") || "";
+}
+
+function authHeaders() {
+  return { "Authorization": `Bearer ${getToken()}` };
 }
 
 // ---------- SUMMARY ----------
@@ -103,39 +140,244 @@ function updateSummary(data) {
 
 
 // ---------- AUTH ----------
-function login() {
-  let user = document.getElementById("username").value;
+async function completeSetup() {
+  const password = document.getElementById("setupPassword").value;
+  const confirm = document.getElementById("setupConfirm").value;
+  const errEl = document.getElementById("setup-error");
 
-  user = user.trim().toLowerCase();
+  errEl.innerText = "";
 
-  if (user) {
-    localStorage.setItem("user", user);
+  if (password.length < 8) {
+    errEl.innerText = "Password must be at least 8 characters.";
+    return;
+  }
+  if (password !== confirm) {
+    errEl.innerText = "Passwords do not match.";
+    return;
+  }
 
-    document.getElementById("login-container").style.display = "none";
-    document.getElementById("app-container").style.display = "block";
+  try {
+    const res = await fetch(
+      `${BASE_URL}/cache/users/set-password?username=admin&new_password=${encodeURIComponent(password)}`,
+      { method: "POST", headers: authHeaders() }
+    );
 
-    loadKnowledgeFiles();
-    loadUsers();
-    loadAuditLogs();   // ✅ MOVE HERE
-
-    const section = document.querySelector("#userTable")?.closest(".section");
-
-    if (user === "admin") {
-      if (section) section.style.display = "block";
-    } else {
-      if (section) section.style.display = "none";
+    if (!res.ok) {
+      const err = await res.json();
+      errEl.innerText = err.error || err.detail || "Failed to set password.";
+      return;
     }
+
+    document.getElementById("setup-container").style.display = "none";
+    showApp();
+  } catch (err) {
+    errEl.innerText = "Error: " + err.message;
   }
 }
 
+function setLoginError(msg) {
+  const el = document.getElementById("login-error");
+  if (el) el.innerText = msg;
+}
+
+async function login() {
+  const username = document.getElementById("username").value.trim().toLowerCase();
+  const password = document.getElementById("password").value;
+  const errorEl = document.getElementById("login-error");
+
+  if (errorEl) errorEl.innerText = "";
+
+  if (!username || !password) {
+    if (errorEl) errorEl.innerText = "Enter username and password";
+    return;
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      if (errorEl) errorEl.innerText = err.detail || "Login failed";
+      return;
+    }
+
+    const data = await res.json();
+
+    localStorage.setItem("token", data.token);
+    localStorage.setItem("user", data.username);
+    localStorage.setItem("role", data.role);
+
+    document.getElementById("login-container").style.display = "none";
+
+    if (data.requires_setup) {
+      document.getElementById("setup-container").style.display = "block";
+      // STOP HERE — do not load any app data until setup is complete
+    } else {
+      showApp();
+    }
+
+  } catch (err) {
+    if (errorEl) errorEl.innerText = "Login error: " + err.message;
+  }
+}
+
+function showApp() {
+  document.getElementById("app-container").style.display = "block";
+
+  const role = localStorage.getItem("role");
+  const section = document.querySelector("#userTable")?.closest(".section");
+
+  if (role === "admin") {
+    if (section) section.style.display = "block";
+  } else {
+    if (section) section.style.display = "none";
+  }
+
+  loadKnowledgeFiles();
+  loadUsers();
+  loadAuditLogs();
+
+  // Call these only if the functions exist (added in later sprints)
+  if (typeof loadRuns === "function") loadRuns();
+  if (typeof loadLibrary === "function") loadLibrary();
+  if (typeof restoreLastSession === "function") restoreLastSession();
+}
+
+async function loadRuns() {
+  try {
+    const res = await fetch(`${BASE_URL}/cache/runs`, { headers: authHeaders() });
+    const runs = await res.json();
+
+    const dropdown = document.getElementById("runsDropdown");
+    if (!dropdown) return;
+
+    dropdown.innerHTML = runs.map(r => {
+      const date = new Date(r.created_at).toLocaleString();
+      return `<option value="${r.run_id}">${date} - ${r.question_count} questions</option>`;
+    }).join("");
+  } catch (err) {
+    console.error("loadRuns error:", err);
+  }
+}
+
+function loadSelectedRun() {
+  const dropdown = document.getElementById("runsDropdown");
+  if (!dropdown || !dropdown.value) return;
+
+  currentRunId = dropdown.value;
+  localStorage.setItem("lastRunId", currentRunId);
+
+  loadPreview();
+}
+
+async function addManualEntry() {
+  const question = document.getElementById("manualQuestion").value.trim();
+  const answer = document.getElementById("manualAnswer").value.trim();
+  const msgEl = document.getElementById("manualEntryMsg");
+
+  msgEl.innerText = "";
+
+  if (question.length < 10 || answer.length < 10) {
+    msgEl.style.color = "red";
+    msgEl.innerText = "Question and answer must each be at least 10 characters.";
+    return;
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/manual`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ question, answer }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      msgEl.style.color = "red";
+      msgEl.innerText = err.detail || "Failed to add entry.";
+      return;
+    }
+
+    document.getElementById("manualQuestion").value = "";
+    document.getElementById("manualAnswer").value = "";
+    msgEl.style.color = "green";
+    msgEl.innerText = "Added to library";
+    setTimeout(() => { msgEl.innerText = ""; }, 2000);
+
+    loadLibrary();
+  } catch (err) {
+    msgEl.style.color = "red";
+    msgEl.innerText = "Error: " + err.message;
+  }
+}
+
+async function loadLibrary() {
+  try {
+    const search = document.getElementById("librarySearch")?.value || "";
+    const url = search
+      ? `${BASE_URL}/cache/library?search=${encodeURIComponent(search)}`
+      : `${BASE_URL}/cache/library`;
+
+    const res = await fetch(url, { headers: authHeaders() });
+    const items = await res.json();
+
+    const tbody = document.querySelector("#libraryTable tbody");
+    if (!tbody) return;
+
+    tbody.innerHTML = "";
+
+    items.forEach(item => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td class="question-cell">${item.question || "-"}</td>
+        <td>${item.answer || "-"}</td>
+        <td>${item.source || "-"}</td>
+        <td><button onclick="deleteLibraryItem(${item.id})">Delete</button></td>
+      `;
+      tbody.appendChild(row);
+    });
+  } catch (err) {
+    console.error("loadLibrary error:", err);
+  }
+}
+
+async function deleteLibraryItem(id) {
+  if (!confirm("Remove this answer from the library?")) return;
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/library/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+
+    if (res.ok) loadLibrary();
+  } catch (err) {
+    console.error("deleteLibraryItem error:", err);
+  }
+}
+
+function restoreLastSession() {
+  const lastRunId = localStorage.getItem("lastRunId");
+  if (!lastRunId) return;
+
+  currentRunId = lastRunId;
+  document.getElementById("progressText").innerText = "Session restored";
+  loadPreview();
+}
+
 function logout() {
-  localStorage.removeItem("user");
+  localStorage.removeItem("token");
+  localStorage.removeItem("username");
+  localStorage.removeItem("role");
   location.reload();
 }
 
 async function loadUsers() {
   try {
-    const res = await fetch(`${BASE_URL}/cache/users`);
+    const res = await fetch(`${BASE_URL}/cache/users`, { headers: authHeaders() });
     const users = await res.json();
 
     const tbody = document.querySelector("#userTable tbody");
@@ -168,6 +410,7 @@ async function loadUsers() {
 
 async function createUser() {
   const username = document.getElementById("newUsername").value.trim().toLowerCase();
+  const password = document.getElementById("newUserPassword").value;
   const role = document.getElementById("newUserRole").value;
 
   if (!username) {
@@ -175,12 +418,28 @@ async function createUser() {
     return;
   }
 
-  const res = await fetch(`${BASE_URL}/cache/users/create?username=${username}&role=${role}&user=${getCurrentUser()}`, {
-    method: "POST"
-  });
+  if (!password || password.length < 8) {
+    alert("Password must be at least 8 characters");
+    return;
+  }
+
+  const res = await fetch(
+    `${BASE_URL}/cache/users/create?username=${username}&role=${role}&password=${encodeURIComponent(password)}`,
+    {
+      method: "POST",
+      headers: authHeaders()
+    }
+  );
 
   const data = await res.json();
-  console.log(data); // ✅ DEBUG
+
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+
+  document.getElementById("newUsername").value = "";
+  document.getElementById("newUserPassword").value = "";
 
   loadUsers();
 }
@@ -188,8 +447,9 @@ async function createUser() {
 async function deleteUser(username) {
   if (!confirm(`Delete user ${username}?`)) return;
 
-  await fetch(`${BASE_URL}/cache/users/delete?username=${username}&user=${getCurrentUser()}`, {
-    method: "POST"
+  await fetch(`${BASE_URL}/cache/users/delete?username=${username}`, {
+    method: "POST",
+    headers: authHeaders(),
   });
 
   loadUsers();
@@ -197,7 +457,7 @@ async function deleteUser(username) {
 
 async function loadAuditLogs() {
   try {
-    const res = await fetch(`${BASE_URL}/cache/audit`);
+    const res = await fetch(`${BASE_URL}/cache/audit`, { headers: authHeaders() });
     const data = await res.json();
 
     const tbody = document.querySelector("#auditTable tbody");
@@ -246,7 +506,7 @@ function toggleButtons(disabled) {
 // ---------- KNOWLEDGE FILE LIST ----------
 async function loadKnowledgeFiles() {
   try {
-    const res = await fetch(`${BASE_URL}/knowledge/sources`);
+    const res = await fetch(`${BASE_URL}/knowledge/sources`, { headers: authHeaders() });
 
     if (!res.ok) return;
 
@@ -276,6 +536,7 @@ async function uploadKnowledge() {
 
   toggleButtons(true);
   document.getElementById("progressText").innerText = "Uploading knowledge...";
+  document.getElementById("knowledgeStatus").innerText = "";
 
   const formData = new FormData();
   formData.append("file", file);
@@ -283,23 +544,31 @@ async function uploadKnowledge() {
   try {
     const res = await fetch(`${BASE_URL}/knowledge/upload`, {
       method: "POST",
+      headers: { "Authorization": `Bearer ${getToken()}` },
       body: formData
     });
 
-    if (!res.ok) throw new Error("Upload failed");
+    if (!res.ok) {
+      const err = await res.json();
+      document.getElementById("knowledgeStatus").innerText = 
+        err.detail || "Upload failed";
+      document.getElementById("knowledgeStatus").style.color = "red";
+      document.getElementById("progressText").innerText = "Upload failed";
+      toggleButtons(false);
+      return;
+    }
 
-    document.getElementById("progressText").innerText =
-      "Knowledge uploaded successfully";
-
+    document.getElementById("progressText").innerText = "Knowledge uploaded successfully";
     document.getElementById("knowledgeStatus").innerText = "Uploaded";
+    document.getElementById("knowledgeStatus").style.color = "green";
 
     setStep("step-knowledge", "done");
-
     await loadKnowledgeFiles();
 
   } catch (err) {
-    document.getElementById("progressText").innerText =
-      "Error uploading knowledge";
+    document.getElementById("knowledgeStatus").innerText = "Error: " + err.message;
+    document.getElementById("knowledgeStatus").style.color = "red";
+    document.getElementById("progressText").innerText = "Upload failed";
   }
 
   toggleButtons(false);
@@ -327,10 +596,12 @@ async function runAutofill() {
 
     const res = await fetch(`${BASE_URL}/upload`, {
       method: "POST",
-      body: formData
+      headers: authHeaders(),
+      body: formData,
     });
 
     currentRunId = res.headers.get("X-Run-Id");
+    localStorage.setItem("lastRunId", currentRunId);
     console.log("Run ID:", currentRunId);
 
     if (!res.ok) throw new Error("Processing failed");
@@ -364,7 +635,7 @@ async function loadPreview() {
       return;
     }
 
-    const res = await fetch(`${BASE_URL}/cache/all?run_id=${currentRunId}`);
+    const res = await fetch(`${BASE_URL}/cache/all?run_id=${currentRunId}`, { headers: authHeaders() });
     const data = await res.json();
 
     if (!Array.isArray(data)) return;
@@ -483,30 +754,32 @@ function toggleAll(master) {
 
 // ---------- BULK ----------
 async function bulkApprove() {
+  if (localStorage.getItem("role") !== "admin") {
+    alert("Only admin can approve");
+    return;
+  }
   await Promise.all([...selectedIds].map(id =>
-    fetch(`${BASE_URL}/cache/approve/${id}?user=${getCurrentUser()}`, {
-      method: "POST"
+    fetch(`${BASE_URL}/cache/approve/${id}`, {
+      method: "POST",
+      headers: authHeaders(),
     })
   ));
-  if (getCurrentUser() !== "admin") {
-  alert("Only admin can approve");
-  return;
-}
   selectedIds.clear();
   loadPreview();
   loadAuditLogs();
 }
 
 async function bulkReject() {
+  if (localStorage.getItem("role") !== "admin") {
+    alert("Only admin can reject");
+    return;
+  }
   await Promise.all([...selectedIds].map(id =>
-    fetch(`${BASE_URL}/cache/reject/${id}?user=${getCurrentUser()}`, {
-      method: "POST"
+    fetch(`${BASE_URL}/cache/reject/${id}`, {
+      method: "POST",
+      headers: authHeaders(),
     })
   ));
-  if (getCurrentUser() !== "admin") {
-  alert("Only admin can approve");
-  return;
-}
   selectedIds.clear();
   loadPreview();
   loadAuditLogs();
@@ -515,7 +788,22 @@ async function bulkReject() {
 
 // ---------- DOWNLOAD ----------
 function downloadFinal() {
-  if (!finalFileBlob) return alert("No file available");
+  if (!finalFileBlob) {
+    const msg = currentRunId
+      ? "File not available after refresh - re-run autofill to download"
+      : "No file available";
+
+    const el = document.getElementById("progressText");
+    if (el) {
+      el.innerText = msg;
+      el.style.color = "orange";
+      // Scroll to status section so user sees it
+      el.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      alert(msg);
+    }
+    return;
+  }
 
   const url = window.URL.createObjectURL(finalFileBlob);
   const a = document.createElement("a");
@@ -529,7 +817,7 @@ function downloadFinal() {
 
 // ---------- AUTO APPROVE ----------
 async function autoApprove() {
-  const res = await fetch(`${BASE_URL}/cache/all?run_id=${currentRunId}`);
+  const res = await fetch(`${BASE_URL}/cache/all?run_id=${currentRunId}`, { headers: authHeaders() });
   const data = await res.json();
 
   if (!Array.isArray(data)) return;
@@ -537,8 +825,9 @@ async function autoApprove() {
   const highConfidence = data.filter(d => d.confidence >= 80);
 
   await Promise.all(highConfidence.map(item =>
-    fetch(`${BASE_URL}/cache/approve/${item.id}?user=${getCurrentUser}`, {
-      method: "POST"
+    fetch(`${BASE_URL}/cache/approve/${item.id}`, {
+      method: "POST",
+      headers: authHeaders(),
     })
   ));
 
@@ -549,7 +838,7 @@ async function autoApprove() {
 
 // ---------- DOWNLOAD APPROVED ----------
 async function downloadApproved() {
-  const res = await fetch(`${BASE_URL}/cache/all?run_id=${currentRunId}`);
+  const res = await fetch(`${BASE_URL}/cache/all?run_id=${currentRunId}`, { headers: authHeaders() });
   const data = await res.json();
 
   if (!Array.isArray(data)) return;
@@ -614,3 +903,5 @@ window.bulkApprove = bulkApprove;
 window.bulkReject = bulkReject;
 window.autoApprove = autoApprove;
 window.downloadApproved = downloadApproved;
+
+initApp();

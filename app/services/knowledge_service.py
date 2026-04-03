@@ -85,7 +85,7 @@ def split_text(text, chunk_size=500):
 # -----------------------------
 # STORE CHUNKS IN DB
 # -----------------------------
-def store_chunks(chunks, source):
+def store_chunks(chunks, source, org_id=None):
     conn = get_conn()
     cur = conn.cursor()
 
@@ -95,10 +95,10 @@ def store_chunks(chunks, source):
 
         cur.execute(
             """
-            INSERT INTO knowledge_base (content, embedding, source)
-            VALUES (%s, %s::vector, %s)
+            INSERT INTO knowledge_base (content, embedding, source, org_id)
+            VALUES (%s, %s::vector, %s, %s)
             """,
-            (chunk, embedding_str, source),
+            (chunk, embedding_str, source, org_id),
         )
 
     conn.commit()
@@ -109,7 +109,7 @@ def store_chunks(chunks, source):
 # -----------------------------
 # RETRIEVE CONTEXT
 # -----------------------------
-def retrieve_knowledge(question, top_k=3):
+def retrieve_knowledge(question, top_k=3, org_id=None):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -120,11 +120,12 @@ def retrieve_knowledge(question, top_k=3):
     SELECT content,
            1 - (embedding <=> %s::vector) AS similarity
     FROM knowledge_base
+    WHERE org_id = %s
     ORDER BY similarity DESC
     LIMIT %s;
     """
 
-    cur.execute(query, (embedding_str, top_k))
+    cur.execute(query, (embedding_str, org_id, top_k))
     results = cur.fetchall()
 
     cur.close()
@@ -136,9 +137,7 @@ def retrieve_knowledge(question, top_k=3):
     return "\n\n".join([r["content"] for r in results])
 
 
-def get_uploaded_sources():
-    from app.services.cache_db import get_conn
-
+def get_uploaded_sources(org_id=None):
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -146,8 +145,9 @@ def get_uploaded_sources():
         cur.execute("""
             SELECT DISTINCT source
             FROM knowledge_base
+            WHERE org_id = %s
             ORDER BY source;
-        """)
+        """, (org_id,))
 
         rows = cur.fetchall()
 

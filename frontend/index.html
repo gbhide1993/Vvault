@@ -9,10 +9,24 @@
 <body>
 
 <!-- LOGIN -->
-<div id="login-container" class="center-box">
+<div id="login-container" class="center-box" style="display:none;">
   <h2>Vvault</h2>
-  <input type="text" id="username" placeholder="Enter username">
-  <button onclick="login()">Login</button>
+  <input type="text" id="username" placeholder="Username" style="display:block; margin-bottom:8px; width:100%;">
+  <input type="password" id="password" placeholder="Password" style="display:block; margin-bottom:8px; width:100%;">
+  <button onclick="login()" style="width:100%;">Login</button>
+  <div id="login-error" style="color:red; font-size:13px; margin-top:6px;"></div>
+</div>
+
+<!-- SETUP SCREEN -->
+<div id="setup-container" style="display:none;" class="center-box">
+  <h2>Welcome to Vvault</h2>
+  <p style="font-size:13px; color:#666; margin-bottom:16px;">You must change the default password before continuing</p>
+  <input type="password" id="setupPassword" placeholder="New password (min 8 chars)"
+    style="display:block; margin-bottom:8px; width:100%;">
+  <input type="password" id="setupConfirm" placeholder="Confirm password"
+    style="display:block; margin-bottom:8px; width:100%;">
+  <button onclick="completeSetup()" style="width:100%;">Set password and continue</button>
+  <div id="setup-error" style="color:red; font-size:13px; margin-top:6px;"></div>
 </div>
 
 <!-- MAIN APP -->
@@ -83,6 +97,13 @@
     <h3>Step 3: Review Answers</h3>
     <p>Review generated answers before downloading</p>
 
+    <!-- PAST SESSIONS -->
+    <div style="margin-bottom:10px; display:flex; align-items:center; gap:8px;">
+      <span style="font-size:13px; color:#666;">Past sessions:</span>
+      <select id="runsDropdown" style="padding:4px;"></select>
+      <button onclick="loadSelectedRun()">Load</button>
+    </div>
+
     <!-- SEARCH + FILTER + ACTIONS -->
     <div style="display:flex; justify-content:space-between; margin-bottom:10px; gap:10px;">
 
@@ -143,12 +164,43 @@
     </table>
   </div>
 
+  <!-- ANSWER LIBRARY -->
+  <div class="section" id="librarySection">
+    <h3>Answer Library</h3>
+    <p class="subtext">All approved answers — reused automatically in future questionnaires</p>
+
+    <div style="margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid #eee;">
+      <textarea id="manualQuestion" placeholder="Question" rows="2"
+        style="width:100%; margin-bottom:8px; padding:6px; box-sizing:border-box;"></textarea>
+      <textarea id="manualAnswer" placeholder="Answer" rows="3"
+        style="width:100%; margin-bottom:8px; padding:6px; box-sizing:border-box;"></textarea>
+      <button onclick="addManualEntry()">Add to library</button>
+      <span id="manualEntryMsg" style="margin-left:10px; font-size:13px; color:green;"></span>
+    </div>
+
+    <input type="text" id="librarySearch" placeholder="Search questions..."
+      oninput="loadLibrary()" style="width:100%; margin-bottom:10px; padding:6px; box-sizing:border-box;">
+    <table id="libraryTable">
+      <thead>
+        <tr>
+          <th>Question</th>
+          <th>Answer</th>
+          <th>Source</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+
   <!-- USER MANAGEMENT -->
   <div class="section">
     <h3>User Management (Admin Only)</h3>
 
     <div style="margin-bottom:10px;">
       <input id="newUsername" placeholder="Username" />
+      <input id="newUserPassword" type="password" placeholder="Password (min 8 chars)" />
+
       <select id="newUserRole">
         <option value="viewer">Viewer</option>
         <option value="admin">Admin</option>

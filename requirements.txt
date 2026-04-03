@@ -8,3 +8,5 @@ openpyxl
 requests
 python-multipart
 pymupdf
+bcrypt
+python-jose[cryptography]

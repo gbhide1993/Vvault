@@ -1,6 +1,4 @@
-from fastapi import APIRouter, Query
-import psycopg2
-import os
+from fastapi import APIRouter, Query, Request
 
 from app.services.cache_db import (
     get_pending_answers,
@@ -18,8 +16,9 @@ router = APIRouter(prefix="/cache", tags=["Cache Management"])
 # 1. GET PENDING (ENRICHED)
 # ----------------------------------
 @router.get("/pending")
-def get_pending(limit: int = 50):
-    results = get_pending_answers(limit)
+def get_pending(request: Request, limit: int = 50):
+    org_id = request.state.username
+    results = get_pending_answers(limit, org_id=org_id)
 
     enriched = []
 
@@ -48,14 +47,11 @@ def get_pending(limit: int = 50):
 # 2. APPROVE SINGLE
 # ----------------------------------
 @router.post("/approve/{cache_id}")
-def approve(cache_id: int, user: str):
-    from app.services.user_service import get_user
+def approve(cache_id: int, request: Request):
+    if request.state.role != "admin":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
 
-    user_obj = get_user(user)
-
-    if not user_obj or user_obj["role"] != "admin":
-        return {"error": "Not authorized"}
-    
     from app.services.cache_db import get_record_by_id
     from app.services.audit_service import log_action
 
@@ -65,7 +61,7 @@ def approve(cache_id: int, user: str):
 
     if record:
         log_action(
-            user_name=user,
+            user_name=request.state.username,
             action="approved",
             question=record["question"],
             answer=record["answer"],
@@ -81,14 +77,11 @@ def approve(cache_id: int, user: str):
 # 3. REJECT SINGLE
 # ----------------------------------
 @router.post("/reject/{cache_id}")
-def reject(cache_id: int, user: str):
-    from app.services.user_service import get_user
+def reject(cache_id: int, request: Request):
+    if request.state.role != "admin":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
 
-    user_obj = get_user(user)
-
-    if not user_obj or user_obj["role"] != "admin":
-        return {"error": "Not authorized"}
-    
     from app.services.cache_db import get_record_by_id
     from app.services.audit_service import log_action
 
@@ -98,7 +91,7 @@ def reject(cache_id: int, user: str):
 
     if record:
         log_action(
-            user_name=user,
+            user_name=request.state.username,
             action="rejected",
             question=record["question"],
             answer=record["answer"],
@@ -113,8 +106,9 @@ def reject(cache_id: int, user: str):
 # 4. BULK APPROVE
 # ----------------------------------
 @router.post("/approve-all")
-def approve_all():
-    count = approve_all_pending()
+def approve_all(request: Request):
+    org_id = request.state.username
+    count = approve_all_pending(org_id=org_id)
 
     return {
         "message": f"{count} records approved"
@@ -125,8 +119,9 @@ def approve_all():
 # 5. GET APPROVED (ENRICHED)
 # ----------------------------------
 @router.get("/approved")
-def get_approved(limit: int = 50):
-    results = get_approved_answers(limit)
+def get_approved(request: Request, limit: int = 50):
+    org_id = request.state.username
+    results = get_approved_answers(limit, org_id=org_id)
 
     enriched = []
 
@@ -156,28 +151,25 @@ def get_approved(limit: int = 50):
 
 
 @router.get("/all")
-def get_all_cache(run_id: str = None):
-    conn = psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        port=os.getenv("DB_PORT")
-    )
+def get_all_cache(request: Request, run_id: str = None):
+    from app.services.cache_db import get_conn
+    org_id = request.state.username
 
+    conn = get_conn()
     cur = conn.cursor()
 
     if not run_id:
         return {"error": "run_id is required"}
-    
+
     cur.execute("""
-        SELECT id, question, answer, confidence, source, source_text, status, 
-        justification, raw_context, matched_question, created_at, updated_at
-        FROM qa_cache
-        WHERE (%s IS NULL OR run_id = %s)        
-        ORDER BY id DESC
+            SELECT id, question, answer, confidence, source, source_text, status, 
+            justification, raw_context, matched_question, created_at, updated_at
+            FROM qa_cache
+            WHERE (%s IS NULL OR run_id = %s)
+            AND (org_id = %s OR org_id IS NULL OR org_id = '')
+            ORDER BY id DESC
     """,
-        (run_id, run_id)
+        (run_id, run_id, org_id)
     )
 
     rows = cur.fetchall()
@@ -207,38 +199,62 @@ def get_all_cache(run_id: str = None):
 # ----------------------------------
 
 
+# SET PASSWORD
+
+@router.post("/users/set-password")
+def set_password_api(
+    request: Request,
+    username: str = Query(...),
+    new_password: str = Query(...),
+):
+    if request.state.role != "admin" and request.state.username != username:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
+
+    from app.services.user_service import update_password
+
+    updated = update_password(username, new_password)
+    if not updated:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"error": "User not found"})
+
+    return {"message": f"Password updated for {username}"}
+
+
 # CREATE USER
 
 @router.post("/users/create")
 def create_user_api(
+    request: Request,
     username: str = Query(...),
     role: str = Query(...),
-    user: str = Query(...)
+    password: str = Query(...),
 ):
-    from app.services.user_service import get_user, create_user
+    if request.state.role != "admin":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
 
-    admin = get_user(user.strip().lower())
+    if len(password) < 8:
+        return {"error": "Password must be at least 8 characters"}
 
-    if not admin or admin["role"] != "admin":
-        return {"error": "Not authorized"}
+    from app.services.user_service import create_user
 
-    create_user(username.strip().lower(), role)
+    create_user(username.strip().lower(), role, password=password)
 
-    return {"message": f"user {username} created"}
+    return {"message": f"User {username} created"}
 
 # DELETE USER
 
 @router.post("/users/delete")
 def delete_user_api(
+    request: Request,
     username: str = Query(...),
-    user: str = Query(...)
 ):
-    from app.services.user_service import get_user, delete_user
+    if request.state.role != "admin":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
 
-    admin = get_user(user.strip().lower())
-
-    if not admin or admin["role"] != "admin":
-        return {"error": "Not authorized"}
+    from app.services.user_service import delete_user
 
     delete_user(username.strip().lower())
 
@@ -251,6 +267,132 @@ def list_users_api():
     from app.services.user_service import list_users
 
     return list_users()
+
+
+@router.get("/runs")
+def get_runs(request: Request):
+    from app.services.cache_db import get_conn
+    from psycopg2.extras import RealDictCursor
+
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT run_id,
+               MAX(created_at) AS created_at,
+               COUNT(*) AS question_count
+        FROM qa_cache
+        WHERE org_id = %s
+          AND run_id IS NOT NULL
+        GROUP BY run_id
+        ORDER BY MAX(created_at) DESC
+        LIMIT 20
+    """, (org_id,))
+
+    results = cur.fetchall()
+    cur.close()
+    conn.close()
+    return results
+
+
+@router.post("/manual")
+def add_manual_entry(request: Request, body: dict):
+    from app.services.cache_db import insert_cache, get_conn
+    from app.services.embedding_service import generate_embedding
+    from app.services.cache_service import get_hash
+    from psycopg2.extras import RealDictCursor
+
+    question = (body.get("question") or "").strip()
+    answer = (body.get("answer") or "").strip()
+
+    if not question or not answer:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=422, content={"detail": "question and answer are required"})
+
+    org_id = request.state.username
+    embedding = generate_embedding(question)
+    q_hash = get_hash(question)
+
+    insert_cache(
+        question=question,
+        question_hash=q_hash,
+        embedding=embedding,
+        answer=answer,
+        confidence=100,
+        status="approved",
+        source="manual",
+        org_id=org_id,
+    )
+
+    # Fetch the inserted id
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id FROM qa_cache WHERE question_hash = %s AND org_id = %s ORDER BY id DESC LIMIT 1", (q_hash, org_id))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    return {"message": "Added to library", "id": row["id"] if row else None}
+
+
+@router.get("/library")
+def get_library(request: Request, search: str = None):
+    from app.services.cache_db import get_conn
+    from psycopg2.extras import RealDictCursor
+
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    if search:
+        cur.execute("""
+            SELECT id, question, answer, source, updated_at
+            FROM qa_cache
+            WHERE status = 'approved'
+              AND org_id = %s
+              AND question ILIKE %s
+            ORDER BY updated_at DESC
+        """, (org_id, f"%{search}%"))
+    else:
+        cur.execute("""
+            SELECT id, question, answer, source, updated_at
+            FROM qa_cache
+            WHERE status = 'approved'
+              AND org_id = %s
+            ORDER BY updated_at DESC
+        """, (org_id,))
+
+    results = cur.fetchall()
+    cur.close()
+    conn.close()
+    return results
+
+
+@router.delete("/library/{item_id}")
+def delete_library_item(item_id: int, request: Request):
+    from app.services.cache_db import get_conn
+
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE qa_cache
+        SET status = 'rejected', updated_at = CURRENT_TIMESTAMP
+        WHERE id = %s AND org_id = %s AND status = 'approved'
+    """, (item_id, org_id))
+
+    updated = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    if not updated:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"error": "Item not found or not authorized"})
+
+    return {"message": f"Item {item_id} removed from library"}
 
 
 @router.get("/audit")

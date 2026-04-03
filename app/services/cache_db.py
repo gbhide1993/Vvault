@@ -13,14 +13,14 @@ def get_conn():
     )
 
 
-def fetch_similar(embedding, threshold=0.85):
+def fetch_similar(embedding, threshold=0.85, org_id=None):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     embedding_str = "[" + ",".join(map(str, embedding)) + "]"
 
     query = """
-    SELECT 
+    SELECT
         id,
         question,
         answer,
@@ -29,11 +29,12 @@ def fetch_similar(embedding, threshold=0.85):
         1 - (embedding <=> %s::vector) AS similarity
     FROM qa_cache
     WHERE 1 - (embedding <=> %s::vector) > %s
+      AND org_id = %s
     ORDER BY similarity DESC
     LIMIT 1;
     """
 
-    cur.execute(query, (embedding_str, embedding_str, threshold))
+    cur.execute(query, (embedding_str, embedding_str, threshold, org_id))
     result = cur.fetchone()
 
     cur.close()
@@ -42,46 +43,34 @@ def fetch_similar(embedding, threshold=0.85):
     return result
 
 
-def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None):
+def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default"):
     conn = get_conn()
     cur = conn.cursor()
 
     embedding_str = "[" + ",".join(map(str, embedding)) + "]"
 
     query = """
-INSERT INTO qa_cache (
-    question,
-    question_hash,
-    embedding,
-    answer,
-    confidence,
-    status,
-    source,
-    justification,
-    raw_context,
-    matched_question,
-    source_text,
-    run_id
-)
-VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT (question_hash)
-DO UPDATE SET
-    answer = EXCLUDED.answer,
-    embedding = EXCLUDED.embedding,
-    source = EXCLUDED.source,
-    confidence = EXCLUDED.confidence,
-    justification = EXCLUDED.justification,
-    raw_context = EXCLUDED.raw_context,
-    matched_question = EXCLUDED.matched_question,
-    source_text = EXCLUDED.source_text,
-    run_id = EXCLUDED.run_id,
-    status = 'pending',
-    updated_at = CURRENT_TIMESTAMP;
-"""
+    INSERT INTO qa_cache (
+        question,
+        question_hash,
+        embedding,
+        answer,
+        confidence,
+        status,
+        source,
+        justification,
+        raw_context,
+        matched_question,
+        source_text,
+        run_id,
+        org_id
+    )
+    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    """
 
     cur.execute(
         query,
-        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id),
+        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id),
     )
 
     conn.commit()
@@ -93,7 +82,7 @@ DO UPDATE SET
 # NEW FUNCTIONS
 # -----------------------------
 
-def get_pending_answers(limit=50):
+def get_pending_answers(limit=50, org_id=None):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -101,11 +90,12 @@ def get_pending_answers(limit=50):
     SELECT id, question, answer, source, created_at
     FROM qa_cache
     WHERE status = 'pending'
+      AND org_id = %s
     ORDER BY created_at DESC
     LIMIT %s;
     """
 
-    cur.execute(query, (limit,))
+    cur.execute(query, (org_id, limit))
     results = cur.fetchall()
 
     cur.close()
@@ -114,7 +104,7 @@ def get_pending_answers(limit=50):
     return results
 
 
-def get_approved_answers(limit=50):
+def get_approved_answers(limit=50, org_id=None):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
@@ -122,11 +112,12 @@ def get_approved_answers(limit=50):
     SELECT id, question, answer, source, updated_at
     FROM qa_cache
     WHERE status = 'approved'
+      AND org_id = %s
     ORDER BY updated_at DESC
     LIMIT %s;
     """
 
-    cur.execute(query, (limit,))
+    cur.execute(query, (org_id, limit))
     results = cur.fetchall()
 
     cur.close()
@@ -153,7 +144,7 @@ def update_status(cache_id, status):
     conn.close()
 
 
-def approve_all_pending():
+def approve_all_pending(org_id=None):
     conn = get_conn()
     cur = conn.cursor()
 
@@ -161,10 +152,11 @@ def approve_all_pending():
     UPDATE qa_cache
     SET status = 'approved',
         updated_at = CURRENT_TIMESTAMP
-    WHERE status = 'pending';
+    WHERE status = 'pending'
+      AND org_id = %s;
     """
 
-    cur.execute(query)
+    cur.execute(query, (org_id,))
     count = cur.rowcount
 
     conn.commit()

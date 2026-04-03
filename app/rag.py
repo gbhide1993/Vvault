@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from fastapi.responses import StreamingResponse
 import io
 import pandas as pd
@@ -46,7 +46,8 @@ def clean_answer(text: str) -> str:
 
 
 @router.post("/upload")
-async def upload_excel(file: UploadFile = File(...)):
+async def upload_excel(request: Request, file: UploadFile = File(...)):
+    org_id = getattr(request.state, "username", "default")
     run_id = str(uuid.uuid4())
 
     if not file.filename.endswith(".xlsx"):
@@ -81,7 +82,7 @@ async def upload_excel(file: UploadFile = File(...)):
         question = question.strip()
 
         # ---------------- CACHE ----------------
-        cached = get_cached_answer(question)
+        cached = get_cached_answer(question, org_id=org_id)
 
         if cached:
             (cached.get("answer") if isinstance(cached, dict) else str(cached))[:200]
@@ -120,7 +121,7 @@ async def upload_excel(file: UploadFile = File(...)):
 
             else:
                 # ---------------- LLM ----------------
-                kb_context = retrieve_knowledge(question)
+                kb_context = retrieve_knowledge(question, org_id=org_id)
                 rag_context = retrieve_top_k(question)
 
                 # 👇 NEW: Evidence collection
@@ -238,7 +239,9 @@ Answer:
                         "justification": getattr(answer_obj, "justification", ""),
                         "raw_context": context if answer_obj.source == "llm" else "",
                         "matched_question": getattr(answer_obj, "matched_question", None),
+                        "org_id": org_id,
                     },
+                    
                 )
 
         # ---------------- DROPDOWN ----------------

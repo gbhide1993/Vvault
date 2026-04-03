@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
 from app.services.knowledge_service import (
     chunk_text,
@@ -13,29 +13,23 @@ router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
 # UPLOAD KNOWLEDGE FILE (PDF + TXT)
 # -----------------------------
 @router.post("/upload")
-async def upload_knowledge(file: UploadFile = File(...)):
+async def upload_knowledge(request: Request, file: UploadFile = File(...)):
+    org_id = request.state.username
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="Invalid file")
 
     content = await file.read()
 
-    # 🔥 HANDLE PDF
     if file.filename.lower().endswith(".pdf"):
         text = extract_text_from_pdf(content)
-
-    # 🔥 HANDLE TEXT
     elif file.filename.lower().endswith(".txt"):
         try:
             text = content.decode("utf-8", errors="ignore")
         except Exception:
             raise HTTPException(status_code=400, detail="Text decoding failed")
-
     else:
-        raise HTTPException(
-            status_code=400,
-            detail="Only .pdf or .txt files supported"
-        )
+        raise HTTPException(status_code=400, detail="Only .pdf or .txt files supported")
 
     if not text.strip():
         raise HTTPException(status_code=400, detail="No readable content found")
@@ -45,7 +39,7 @@ async def upload_knowledge(file: UploadFile = File(...)):
     if len(chunks) == 0:
         raise HTTPException(status_code=400, detail="No valid chunks")
 
-    store_chunks(chunks, source=file.filename)
+    store_chunks(chunks, source=file.filename, org_id=org_id)
 
     return {
         "message": f"{len(chunks)} chunks stored",
@@ -78,10 +72,10 @@ def get_uploaded_sources():
 
 
 @router.get("/sources")
-def get_sources():
+def get_sources(request: Request):
     try:
         from app.services.knowledge_service import get_uploaded_sources
-        return get_uploaded_sources()
+        return get_uploaded_sources(org_id=request.state.username)
     except Exception as e:
         print("❌ /sources error:", str(e))
         return {"error": str(e)}

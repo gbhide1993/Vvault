@@ -12,8 +12,8 @@ def get_hash(text):
     return hashlib.sha256(text.strip().lower().encode()).hexdigest()
 
 
-def get_cached_answer(question: str):
-    q = question.lower()
+def get_cached_answer(question: str, org_id=None):
+    q = (org_id, question.lower())
 
     # ⚡ 1. In-memory cache
     if q in CACHE:
@@ -22,7 +22,7 @@ def get_cached_answer(question: str):
 
     # 🧠 2. DB semantic cache
     embedding = generate_embedding(question)
-    result = fetch_similar(embedding, threshold=THRESHOLD)
+    result = fetch_similar(embedding, threshold=THRESHOLD, org_id=org_id)
 
     if result:
         print("⚡ DB cache hit")
@@ -44,8 +44,8 @@ def get_cached_answer(question: str):
     return None
 
 
-def set_cached_answer(question: str, data):
-    q = question.lower()
+def set_cached_answer(question: str, data, org_id=None):
+    q = (org_id, question.lower())
 
     answer = None
     source = "llm"
@@ -57,12 +57,10 @@ def set_cached_answer(question: str, data):
         answer = data.get("answer")
         source = data.get("source", "llm")
         confidence = data.get("confidence", 50)
-        run_id = data.get("run_id")  
+        run_id = data.get("run_id")
         source_text = data.get("source_text")
-        
     else:
         answer = data
-        
 
     CACHE[q] = {
         "answer": answer,
@@ -73,18 +71,19 @@ def set_cached_answer(question: str, data):
     q_hash = get_hash(question)
 
     insert_cache(
-    question=question,
-    question_hash=q_hash,
-    embedding=embedding,
-    answer=answer,
-    confidence=confidence,
-    status="pending",
-    source=source,
-    justification=data.get("justification", ""),
-    raw_context=data.get("raw_context", ""),
-    matched_question=data.get("matched_question"),
-    source_text=data.get("source_text"),
-    run_id=data.get("run_id"),
-)
+        question=question,
+        question_hash=q_hash,
+        embedding=embedding,
+        answer=answer,
+        confidence=confidence,
+        status="pending",
+        source=source,
+        justification=data.get("justification", ""),
+        raw_context=data.get("raw_context", ""),
+        matched_question=data.get("matched_question"),
+        source_text=data.get("source_text"),
+        run_id=data.get("run_id"),
+        org_id=data.get("org_id", "default"),
+    )
 
 

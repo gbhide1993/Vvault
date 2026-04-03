@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
     content TEXT,
     embedding VECTOR(768),
     source TEXT,
+    org_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -18,7 +19,7 @@ CREATE TABLE IF NOT EXISTS knowledge_base (
 CREATE TABLE IF NOT EXISTS qa_cache (
     id SERIAL PRIMARY KEY,
     question TEXT,
-    question_hash TEXT,   -- ❌ removed UNIQUE
+    question_hash TEXT,
     answer TEXT,
     embedding VECTOR(768),
     confidence INT,
@@ -26,6 +27,8 @@ CREATE TABLE IF NOT EXISTS qa_cache (
     justification TEXT,
     status VARCHAR(20) DEFAULT 'pending',
     source_text TEXT,
+    raw_context TEXT,
+    matched_question TEXT,
     run_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -33,6 +36,12 @@ CREATE TABLE IF NOT EXISTS qa_cache (
 
 -- 🔥 SAFETY: remove old unique constraint if exists
 ALTER TABLE qa_cache DROP CONSTRAINT IF EXISTS qa_cache_question_hash_key;
+
+-- Migrations for org_id (safe for existing deployments)
+ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS org_id TEXT;
+ALTER TABLE knowledge_base ADD COLUMN IF NOT EXISTS org_id TEXT;
+
+CREATE INDEX IF NOT EXISTS idx_qa_cache_org_id ON qa_cache(org_id);
 
 -- 🔥 Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_kb_embedding
@@ -63,11 +72,15 @@ CREATE TABLE IF NOT EXISTS system_logs (
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username TEXT UNIQUE,
+    password_hash TEXT,
     role TEXT DEFAULT 'viewer',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Default admin user
+-- Migration: add password_hash if upgrading from older schema
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+
+-- Default admin user (no password — seeded at runtime with bcrypt hash)
 INSERT INTO users (username, role)
 VALUES ('admin', 'admin')
 ON CONFLICT (username) DO NOTHING;
