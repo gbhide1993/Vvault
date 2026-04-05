@@ -1,8 +1,10 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 import io
 import pandas as pd
 import uuid
+import time
+import threading
 
 from app.utils.rag_excel_parser import parse_excel
 from app.utils.excel_writer import write_answers
@@ -19,6 +21,7 @@ from app.services.template_service import init_template_embeddings_once
 from app.models.answer_model import AnswerMetadata
 from app.services.confidence_service import build_confidence
 from app.services.knowledge_service import retrieve_knowledge
+from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 
 router = APIRouter()
 
@@ -43,6 +46,263 @@ def clean_answer(text: str) -> str:
         text += "."
 
     return text
+
+
+def process_questionnaire(rows, sheet_data, run_id, org_id):
+    try:
+        from app.services.job_service import update_job_progress, complete_job, fail_job
+
+        answers = [{} for _ in range(len(rows))]
+
+        dropdown_map = {}
+        for sheet_name, data in sheet_data.items():
+            df = data["df"]
+            dropdown_map[sheet_name] = detect_dropdown_columns(df)
+
+        print("Dropdown map:", dropdown_map)
+
+        _bench_start = time.time()
+        _bench_stats = {"cache": [], "template": [], "llm": [], "fallback": []}
+
+        for row in rows:
+            source_text = ""
+            _q_start = time.time()
+            idx = row["index"]
+            question = row["question"]
+            sheet_name = row["sheet"]
+
+            question = question.strip()
+
+            # ---------------- CACHE ----------------
+            cached = get_cached_answer(question, org_id=org_id)
+
+            if cached:
+                (cached.get("answer") if isinstance(cached, dict) else str(cached))[:200]
+
+                confidence, justification = build_confidence("cache")
+
+                answer_obj = AnswerMetadata(
+                    answer=clean_answer(cached["answer"] if isinstance(cached, dict) else cached),
+                    confidence=confidence,
+                    source="cache",
+                    justification=justification,
+                    evidence=[],   # Cache doesn't have evidence
+                    matched_question=cached.get("matched_question") if isinstance(cached, dict) else None,
+                )
+
+
+
+            else:
+                init_template_embeddings_once()
+
+                # ---------------- TEMPLATE ----------------
+                template = get_template_answer(question)
+
+                if template:
+                    source_text = "Based on company policy / template"
+
+                    confidence, justification = build_confidence("template")
+
+                    answer_obj = AnswerMetadata(
+                        answer=clean_answer(template),
+                        confidence=confidence,
+                        source="template",
+                        evidence=[],   # Template doesn't have evidence
+                        justification=justification,
+                    )
+
+                else:
+                    # ---------------- LLM ----------------
+                    kb_context = retrieve_knowledge(question, org_id=org_id)
+                    rag_context = retrieve_top_k(question)
+
+                    # 👇 NEW: Evidence collection
+                    evidence = []
+
+                    if kb_context:
+                        evidence.append({
+                            "type": "knowledge_base",
+                            "content": kb_context.split(".")[0][:200]
+                        })
+
+                    if rag_context:
+                        evidence.append({
+                            "type": "rag",
+                            "content": rag_context.split(".")[0][:200]
+                        })
+
+                    context = f"{kb_context}\n\n{rag_context}"
+
+                    context = context[:2000]
+
+                    source_text = (kb_context or "")[:100] + " " + (rag_context or "")[:100]
+                    source_text = source_text.strip()[:200]
+
+                    prompt = f"""
+You are a SOC2 security expert.
+
+STRICT INSTRUCTIONS:
+- You MUST answer using the provided context
+- If ANY relevant information exists → DO NOT say "No relevant information"
+- Extract and rephrase the closest answer from context
+- Even partial info → convert into a confident answer
+- NEVER return "No relevant information" unless context is completely empty
+
+Context:
+{context}
+
+Question:
+{question}
+
+Answer:
+"""
+
+                    try:
+                        llm_answer = generate_answer(prompt).strip()
+
+                        bad_phrases = [
+                            "no relevant information",
+                            "not available",
+                            "cannot determine",
+                            "no information",
+                            "unknown",
+                            "not provided",
+                            "not explicitly stated",
+                            "not mentioned",
+                            "not found",
+                            "not included"
+                        ]
+
+                        is_bad = (
+                            not llm_answer
+                            or any(p in llm_answer.lower() for p in bad_phrases)
+                            or len(llm_answer.strip()) < 20
+                        )
+
+                        # 🔥 CORE FIX: ALWAYS USE CONTEXT IF AVAILABLE
+                        if context.strip():
+                            if is_bad:
+                                print("⚠️ Using context instead of weak LLM output")
+
+                                cleaned = context.replace("\n", " ").strip()
+                                sentences = cleaned.split(".")
+                                base = sentences[0] if sentences else cleaned
+
+                                llm_answer = base.strip()
+
+                            else:
+                                print("✅ Good LLM answer")
+
+                        else:
+                            # No context at all → fallback
+                            llm_answer = "Security controls are implemented based on organizational policies and best practices."
+
+                        llm_answer = clean_answer(llm_answer)
+                        print("LLM Answer Debug:", llm_answer)
+                        confidence, justification = build_confidence("llm", context)
+
+                        answer_obj = AnswerMetadata(
+                            answer=llm_answer,
+                            confidence=confidence,
+                            source="llm",
+                            justification=justification,
+                            evidence=evidence
+                        )
+
+                    except Exception:
+                        answer_obj = AnswerMetadata(
+                            answer="Security controls are implemented based on organizational policies and best practices.",
+                            confidence=0.3,
+                            source="fallback",
+                            justification="LLM failure",
+                            evidence=[]
+                        )
+
+                # ---------------- SAVE ----------------
+                if answer_obj.answer:
+                    set_cached_answer(
+                        question,
+                        {
+                            "answer": answer_obj.answer,
+                            "source": answer_obj.source,
+                            "confidence": int(answer_obj.confidence * 100),
+                            "source_text": source_text,
+                            "run_id": run_id,
+                            "justification": getattr(answer_obj, "justification", ""),
+                            "raw_context": context if answer_obj.source == "llm" else "",
+                            "matched_question": getattr(answer_obj, "matched_question", None),
+                            "org_id": org_id,
+                        },
+
+                    )
+
+            _bench_stats[answer_obj.source if answer_obj.source in _bench_stats else "fallback"].append(time.time() - _q_start)
+
+            # ---------------- DROPDOWN ----------------
+            df = sheet_data[sheet_name]["df"]
+            dropdown_cols = dropdown_map.get(sheet_name, {})
+
+            final_answer = answer_obj.answer
+
+            for col, options in dropdown_cols.items():
+                if col.lower() in ["answer", "response", "status"]:
+                    final_answer = map_answer_to_option(final_answer, options)
+                    break
+
+
+            print("FINAL ANSWER DEBUG:", final_answer)
+            answers[idx] = {
+                "answer": final_answer,
+                "confidence": int(answer_obj.confidence * 100),
+                "source": answer_obj.source,
+
+                # 🔥 CLEAN UX
+                "justification": getattr(answer_obj, "justification", ""),
+                "matched_question": getattr(answer_obj, "matched_question", None),
+
+                # 🔥 EVIDENCE (SAFE FALLBACKS)
+                "evidence": getattr(answer_obj, "evidence", ""),
+                "raw_context": locals().get("context", ""),
+
+                # 🔥 TRACEABILITY (for Phase 2 ready)
+                "documents": locals().get("kb_sources", []),
+
+                # 🔥 KEEP OLD (don't break anything)
+                "source_text": source_text,
+            }
+
+            update_job_progress(run_id, answers[idx].get("source", "fallback"))
+
+        _total = time.time() - _bench_start
+        _total_q = len(rows)
+        print("")
+        print("=" * 55)
+        print(f"  VVAULT BENCHMARK — {_total_q} questions")
+        print("=" * 55)
+        mins = int(_total // 60)
+        secs = int(_total % 60)
+        print(f"  Total time:     {mins}m {secs}s")
+        for src, times in _bench_stats.items():
+            if times:
+                avg = sum(times) / len(times)
+                print(f"  {src:<12} {len(times):>4} questions  avg {avg:.1f}s")
+        qpm = (_total_q / _total) * 60 if _total > 0 else 0
+        print(f"  Rate:           {qpm:.1f} questions/minute")
+        if _bench_stats.get("llm"):
+            llm_avg = sum(_bench_stats["llm"]) / len(_bench_stats["llm"])
+            est_300_llm = (llm_avg * 300) / 60
+            print(f"  Est. 300q LLM:  {est_300_llm:.0f} minutes (LLM only)")
+        print("=" * 55)
+        print("")
+
+        output = write_answers(sheet_data, answers, rows)
+        with open(f"/tmp/{run_id}.xlsx", "wb") as f:
+            f.write(output.read())
+        complete_job(run_id)
+
+    except Exception as e:
+        fail_job(run_id, str(e))
+        print(f"Job {run_id} failed: {e}")
 
 
 @router.post("/upload")
@@ -93,226 +353,16 @@ async def upload_excel(request: Request, file: UploadFile = File(...)):
     if len(rows) > 500:
         raise HTTPException(status_code=400, detail="Max 500 rows allowed")
 
-    answers = [{} for _ in range(len(rows))]
+    create_job(run_id, len(rows))
 
-    dropdown_map = {}
-    for sheet_name, data in sheet_data.items():
-        df = data["df"]
-        dropdown_map[sheet_name] = detect_dropdown_columns(df)
-
-    print("Dropdown map:", dropdown_map)
-
-    for row in rows:
-        source_text = ""
-        idx = row["index"]
-        question = row["question"]
-        sheet_name = row["sheet"]
-
-        question = question.strip()
-
-        # ---------------- CACHE ----------------
-        cached = get_cached_answer(question, org_id=org_id)
-
-        if cached:
-            (cached.get("answer") if isinstance(cached, dict) else str(cached))[:200]
-
-            confidence, justification = build_confidence("cache")
-
-            answer_obj = AnswerMetadata(
-                answer=clean_answer(cached["answer"] if isinstance(cached, dict) else cached),
-                confidence=confidence,
-                source="cache",
-                justification=justification,
-                evidence=[],   # Cache doesn't have evidence
-                matched_question=cached.get("matched_question") if isinstance(cached, dict) else None,
-            )
-
-            
-
-        else:
-            init_template_embeddings_once()
-
-            # ---------------- TEMPLATE ----------------
-            template = get_template_answer(question)
-
-            if template:
-                source_text = "Based on company policy / template"
-
-                confidence, justification = build_confidence("template")
-
-                answer_obj = AnswerMetadata(
-                    answer=clean_answer(template),
-                    confidence=confidence,
-                    source="template",
-                    evidence=[],   # Template doesn't have evidence
-                    justification=justification,
-                )
-
-            else:
-                # ---------------- LLM ----------------
-                kb_context = retrieve_knowledge(question, org_id=org_id)
-                rag_context = retrieve_top_k(question)
-
-                # 👇 NEW: Evidence collection
-                evidence = []
-
-                if kb_context:
-                    evidence.append({
-                        "type": "knowledge_base",
-                        "content": kb_context.split(".")[0][:200]
-                    })
-
-                if rag_context:
-                    evidence.append({
-                        "type": "rag",
-                        "content": rag_context.split(".")[0][:200]
-                    })
-
-                context = f"{kb_context}\n\n{rag_context}"
-
-                context = context[:2000]
-
-                source_text = (kb_context or "")[:100] + " " + (rag_context or "")[:100]
-                source_text = source_text.strip()[:200]
-
-                prompt = f"""
-You are a SOC2 security expert.
-
-STRICT INSTRUCTIONS:
-- You MUST answer using the provided context
-- If ANY relevant information exists → DO NOT say "No relevant information"
-- Extract and rephrase the closest answer from context
-- Even partial info → convert into a confident answer
-- NEVER return "No relevant information" unless context is completely empty
-
-Context:
-{context}
-
-Question:
-{question}
-
-Answer:
-"""
-
-                try:
-                    llm_answer = generate_answer(prompt).strip()
-
-                    bad_phrases = [
-                        "no relevant information",
-                        "not available",
-                        "cannot determine",
-                        "no information",
-                        "unknown",
-                        "not provided",
-                        "not explicitly stated",
-                        "not mentioned",
-                        "not found",
-                        "not included"
-                    ]
-
-                    is_bad = (
-                        not llm_answer
-                        or any(p in llm_answer.lower() for p in bad_phrases)
-                        or len(llm_answer.strip()) < 20
-                    )
-                    
-                    # 🔥 CORE FIX: ALWAYS USE CONTEXT IF AVAILABLE
-                    if context.strip():
-                        if is_bad:
-                            print("⚠️ Using context instead of weak LLM output")
-
-                            cleaned = context.replace("\n", " ").strip()
-                            sentences = cleaned.split(".")
-                            base = sentences[0] if sentences else cleaned
-
-                            llm_answer = base.strip()
-
-                        else:
-                            print("✅ Good LLM answer")
-
-                    else:
-                        # No context at all → fallback
-                        llm_answer = "Security controls are implemented based on organizational policies and best practices."
-
-                    llm_answer = clean_answer(llm_answer)
-                    print("LLM Answer Debug:", llm_answer)
-                    confidence, justification = build_confidence("llm", context)
-
-                    answer_obj = AnswerMetadata(
-                        answer=llm_answer,
-                        confidence=confidence,
-                        source="llm",
-                        justification=justification,
-                        evidence=evidence  
-                    )
-
-                except Exception:
-                    answer_obj = AnswerMetadata(
-                        answer="Security controls are implemented based on organizational policies and best practices.",
-                        confidence=0.3,
-                        source="fallback",
-                        justification="LLM failure",
-                        evidence=[]
-                    )
-
-            # ---------------- SAVE ----------------
-            if answer_obj.answer:
-                set_cached_answer(
-                    question,
-                    {
-                        "answer": answer_obj.answer,
-                        "source": answer_obj.source,
-                        "confidence": int(answer_obj.confidence * 100),
-                        "source_text": source_text,
-                        "run_id": run_id,
-                        "justification": getattr(answer_obj, "justification", ""),
-                        "raw_context": context if answer_obj.source == "llm" else "",
-                        "matched_question": getattr(answer_obj, "matched_question", None),
-                        "org_id": org_id,
-                    },
-                    
-                )
-
-        # ---------------- DROPDOWN ----------------
-        df = sheet_data[sheet_name]["df"]
-        dropdown_cols = dropdown_map.get(sheet_name, {})
-
-        final_answer = answer_obj.answer
-
-        for col, options in dropdown_cols.items():
-            if col.lower() in ["answer", "response", "status"]:
-                final_answer = map_answer_to_option(final_answer, options)
-                break
-
-                
-        print("FINAL ANSWER DEBUG:", final_answer)
-        answers[idx] = {
-            "answer": final_answer,
-            "confidence": int(answer_obj.confidence * 100),
-            "source": answer_obj.source,
-
-            # 🔥 CLEAN UX
-            "justification": getattr(answer_obj, "justification", ""),
-            "matched_question": getattr(answer_obj, "matched_question", None),
-
-            # 🔥 EVIDENCE (SAFE FALLBACKS)
-            "evidence": getattr(answer_obj, "evidence", ""),
-            "raw_context": locals().get("context", ""),
-
-            # 🔥 TRACEABILITY (for Phase 2 ready)
-            "documents": locals().get("kb_sources", []),
-
-            # 🔥 KEEP OLD (don’t break anything)
-            "source_text": source_text,
-        }
-
-    output = write_answers(sheet_data, answers, rows)
-
-    response = StreamingResponse(
-        output,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    thread = threading.Thread(
+        target=process_questionnaire,
+        args=(rows, sheet_data, run_id, org_id),
+        daemon=True,
     )
+    thread.start()
 
-    response.headers["X-Run-Id"] = run_id
-
-    return response
+    return JSONResponse(
+        content={"run_id": run_id, "status": "queued", "total": len(rows)},
+        headers={"X-Run-Id": run_id},
+    )

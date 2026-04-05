@@ -20,3 +20,7 @@ node_modules/
 # Excel outputs
 *.xlsx
 .env
+
+__pycache__/
+*.pyc
+*.pyo

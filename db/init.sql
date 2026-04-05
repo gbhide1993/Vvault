@@ -58,6 +58,23 @@ CREATE INDEX IF NOT EXISTS idx_run_id
 ON qa_cache(run_id);
 
 -- =========================
+-- Async Jobs
+-- =========================
+CREATE TABLE IF NOT EXISTS jobs (
+    run_id TEXT PRIMARY KEY,
+    status TEXT DEFAULT 'queued',
+    progress INT DEFAULT 0,
+    total INT DEFAULT 0,
+    source_template INT DEFAULT 0,
+    source_llm INT DEFAULT 0,
+    source_cache INT DEFAULT 0,
+    source_fallback INT DEFAULT 0,
+    error TEXT,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =========================
 -- System Logs
 -- =========================
 CREATE TABLE IF NOT EXISTS system_logs (

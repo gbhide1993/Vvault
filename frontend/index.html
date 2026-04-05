@@ -84,6 +84,15 @@
       <div class="step" id="step-complete"><div class="circle"></div><span>Completed</span></div>
     </div>
     <div id="progressText">Idle</div>
+
+    <div id="autofillProgressContainer" style="margin-top:10px; display:none;">
+      <div style="width:100%; background:#eee; height:8px; border-radius:4px; overflow:hidden; margin-bottom:6px;">
+        <div id="autofillProgressBar" style="width:0%; height:100%; background:#2c7be5; transition:width 0.5s ease;"></div>
+      </div>
+      <div id="sourceBreakdown" style="font-size:12px; color:#666;">
+        Template: 0 | LLM: 0 | Cache: 0
+      </div>
+    </div>
   </div>
 
   <!-- SUMMARY -->

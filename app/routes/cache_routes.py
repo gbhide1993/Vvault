@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Query, Request, HTTPException
+from fastapi.responses import StreamingResponse, JSONResponse
+import io
 
 from app.services.cache_db import (
     get_pending_answers,
@@ -393,6 +395,50 @@ def delete_library_item(item_id: int, request: Request):
         return JSONResponse(status_code=404, content={"error": "Item not found or not authorized"})
 
     return {"message": f"Item {item_id} removed from library"}
+
+
+@router.get("/upload/status/{run_id}")
+def get_job_status(run_id: str, request: Request):
+    from app.services.job_service import get_job
+
+    job = get_job(run_id)
+
+    if not job:
+        return {
+            "status": "unknown",
+            "progress": 0,
+            "total": 0,
+            "source_counts": {"template": 0, "llm": 0, "cache": 0, "fallback": 0},
+            "error": None
+        }
+
+    return job
+
+
+@router.get("/upload/download/{run_id}")
+def download_job_result(run_id: str):
+    import os
+    from fastapi.responses import FileResponse
+    from app.services.job_service import get_job
+
+    job = get_job(run_id)
+
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job["status"] != "complete":
+        raise HTTPException(status_code=400, detail="Job not complete yet")
+
+    filepath = f"/tmp/{run_id}.xlsx"
+
+    if not os.path.exists(filepath):
+        raise HTTPException(status_code=404, detail="Result file not available — re-run autofill")
+
+    return FileResponse(
+        filepath,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="vvault_output.xlsx"
+    )
 
 
 @router.get("/audit")
