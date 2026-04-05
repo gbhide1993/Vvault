@@ -4,14 +4,14 @@ services:
   db:
     image: ankane/pgvector
     container_name: vvault_db
+    # Copy .env.example to .env and replace default credentials before first run
     environment:
       POSTGRES_DB: vvault
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: postgres
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
 
   backend:
@@ -25,25 +25,23 @@ services:
       DB_HOST: db
       DB_NAME: vvault
       DB_USER: postgres
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PASSWORD: postgres
       DB_PORT: 5432
     ports:
       - "8000:8000"
     volumes:
        - .:/app  
-       - ./vvault-vvault-internal-2027.vvault-license:/app/vvault-vvault-internal-2027.vvault-license
 
   frontend:
-    build: ./frontend
-    ports:
-      - "3000:80"
-      - "3443:443"
-    volumes:
-      - ./certs:/etc/nginx/certs:ro
-    depends_on:
-      - backend
+      build: ./frontend
+      ports:
+        - "3000:80"
+        - "3443:443"
+      depends_on:
+        - backend
+      volumes:
+        - ./certs:/etc/nginx/certs:ro
 
- 
 
   ollama:
     image: ollama/ollama

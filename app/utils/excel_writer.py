@@ -23,25 +23,26 @@ def write_answers(sheet_data, answers, rows):
     # -----------------------------
     for sheet_name, data in sheet_data.items():
         df = data["df"]
-        # Handle Word/PDF input where df is None
+
+        # --- DOCX path: df is None, build from scratch ---
         if df is None:
-                rows_data = []
-                for row in rows:
-                    if row["sheet"] != sheet_name:
-                        continue
-                    idx = row["index"]
-                    ans = answers[idx] if idx < len(answers) else {}
-                    confidence = float(ans.get("confidence", 0)) if isinstance(ans, dict) else 0
-                    rows_data.append({
-                        "Question": row["question"],
-                        "Answer": ans.get("answer", "") if isinstance(ans, dict) else str(ans),
-                        "Confidence": round(confidence / 100, 2) if confidence > 1 else round(confidence, 2),
-                        "Source": ans.get("source", "") if isinstance(ans, dict) else "",
-                        "Review Needed": "YES" if confidence < 70 else "NO"
-                    })
-                df = pd.DataFrame(rows_data)
-                df.to_excel(writer, sheet_name=sheet_name, index=False)
-                continue
+            rows_data = []
+            for row in rows:
+                if row["sheet"] != sheet_name:
+                    continue
+                idx = row["index"]
+                ans = answers[idx] if idx < len(answers) else {}
+                confidence = ans.get("confidence", 0) if isinstance(ans, dict) else 0
+                rows_data.append({
+                    "Question": row["question"],
+                    "Answer": ans.get("answer", "") if isinstance(ans, dict) else str(ans),
+                    "Confidence": confidence,
+                    "Source": ans.get("source", "") if isinstance(ans, dict) else "",
+                    "Review Needed": "YES" if confidence < 70 else "NO",
+                })
+            data["df"] = pd.DataFrame(rows_data)
+            continue
+
         # 🔍 Find answer column
         answer_col = None
         for col in df.columns:
@@ -130,7 +131,7 @@ def write_answers(sheet_data, answers, rows):
             answer_col_idx = headers.index(
                 next(h for h in headers if str(h).lower() in ["answer", "response", "status"])
             ) + 1
-        except:
+        except StopIteration:
             continue
 
         if "Confidence" not in headers:

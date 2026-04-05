@@ -28,8 +28,16 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...)):
             text = content.decode("utf-8", errors="ignore")
         except Exception:
             raise HTTPException(status_code=400, detail="Text decoding failed")
+    elif file.filename.lower().endswith(".docx"):
+        try:
+            from docx import Document as DocxDocument
+            import io as _io
+            doc = DocxDocument(_io.BytesIO(content))
+            text = "\n\n".join([p.text for p in doc.paragraphs if p.text.strip()])
+        except Exception:
+            raise HTTPException(status_code=400, detail="Word document parsing failed")
     else:
-        raise HTTPException(status_code=400, detail="Only .pdf or .txt files supported")
+        raise HTTPException(status_code=400, detail="Only .pdf, .txt, or .docx files supported")
 
     if not text.strip():
         raise HTTPException(status_code=400, detail="No readable content found")

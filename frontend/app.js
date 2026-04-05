@@ -225,6 +225,19 @@ async function login() {
   }
 }
 
+function updateUserProfile() {
+  const username = localStorage.getItem("user") || "";
+  const role = localStorage.getItem("role") || "";
+
+  const avatar = document.getElementById("userAvatar");
+  const name = document.getElementById("userDisplayName");
+  const roleEl = document.getElementById("userDisplayRole");
+
+  if (avatar) avatar.innerText = username.charAt(0).toUpperCase();
+  if (name) name.innerText = username;
+  if (roleEl) roleEl.innerText = role.charAt(0).toUpperCase() + role.slice(1);
+}
+
 function showApp() {
   document.getElementById("app-container").style.display = "block";
 
@@ -236,6 +249,8 @@ function showApp() {
   } else {
     if (section) section.style.display = "none";
   }
+
+  updateUserProfile();
 
   loadKnowledgeFiles();
   loadUsers();

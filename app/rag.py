@@ -6,7 +6,7 @@ import uuid
 import time
 import threading
 
-from app.utils.rag_excel_parser import parse_excel
+from app.utils.rag_excel_parser import parse_excel, is_valid_question
 from app.utils.excel_writer import write_answers
 
 from app.services.retrieval_service import retrieve_top_k
@@ -24,6 +24,51 @@ from app.services.knowledge_service import retrieve_knowledge
 from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 
 router = APIRouter()
+
+
+def parse_docx_questionnaire(content: bytes) -> list:
+    from docx import Document as DocxDocument
+
+    doc = DocxDocument(io.BytesIO(content))
+    rows = []
+    idx = 0
+
+    # Paragraphs
+    for para in doc.paragraphs:
+        text = para.text.strip()
+        if is_valid_question(text):
+            rows.append({"index": idx, "question": text, "sheet": "Document", "row_idx": idx})
+            idx += 1
+
+    # Table cells (first column of each row)
+    for table in doc.tables:
+        for row in table.rows:
+            if row.cells:
+                text = row.cells[0].text.strip()
+                if is_valid_question(text):
+                    rows.append({"index": idx, "question": text, "sheet": "Document", "row_idx": idx})
+                    idx += 1
+
+    return rows
+
+
+def parse_pdf_questionnaire(content: bytes) -> list:
+    import fitz
+
+    doc = fitz.open(stream=content, filetype="pdf")
+    rows = []
+    idx = 0
+
+    for page in doc:
+        text = page.get_text()
+        for line in text.splitlines():
+            line = line.strip()
+            if is_valid_question(line):
+                rows.append({"index": idx, "question": line, "sheet": "PDF Document", "row_idx": idx})
+                idx += 1
+
+    doc.close()
+    return rows
 
 
 def clean_answer(text: str) -> str:
@@ -306,43 +351,22 @@ Answer:
 
 
 @router.post("/upload")
-async def upload_excel(request: Request, file: UploadFile = File(...)):
+async def upload_questionnaire(request: Request, file: UploadFile = File(...)):
     org_id = getattr(request.state, "username", "default")
     run_id = str(uuid.uuid4())
 
-    allowed = (".xlsx", ".docx", ".pdf")
-    if not file.filename.lower().endswith(allowed):
-        raise HTTPException(status_code=400, detail="Only .xlsx, .docx, and .pdf files supported")
-    contents = await file.read()
-    excel_file = io.BytesIO(contents)
-
     fname = file.filename.lower()
+    if not (fname.endswith(".xlsx") or fname.endswith(".docx") or fname.endswith(".pdf")):
+        raise HTTPException(status_code=400, detail="Only .xlsx, .docx or .pdf files supported")
+
+    contents = await file.read()
 
     if fname.endswith(".docx"):
-        from docx import Document as DocxDocument
-        doc = DocxDocument(io.BytesIO(contents))
-        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-        for table in doc.tables:
-            for row in table.rows:
-                cell = row.cells[0].text.strip()
-                if cell:
-                    paragraphs.append(cell)
-        from app.utils.rag_excel_parser import is_valid_question
-        questions = [q for q in paragraphs if is_valid_question(q)]
-        rows = [{"index": i, "question": q, "sheet": "Document", "row_idx": i} for i, q in enumerate(questions)]
+        rows = parse_docx_questionnaire(contents)
         sheet_data = {"Document": {"df": None, "rows": rows}}
-
     elif fname.endswith(".pdf"):
-        import fitz
-        doc = fitz.open(stream=contents, filetype="pdf")
-        lines = []
-        for page in doc:
-            lines.extend(page.get_text().splitlines())
-        from app.utils.rag_excel_parser import is_valid_question
-        questions = [l.strip() for l in lines if is_valid_question(l.strip())]
-        rows = [{"index": i, "question": q, "sheet": "PDF Document", "row_idx": i} for i, q in enumerate(questions)]
+        rows = parse_pdf_questionnaire(contents)
         sheet_data = {"PDF Document": {"df": None, "rows": rows}}
-
     else:
         excel_file = io.BytesIO(contents)
         rows, sheet_data = parse_excel(excel_file)

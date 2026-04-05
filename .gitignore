@@ -21,6 +21,5 @@ node_modules/
 *.xlsx
 .env
 
-__pycache__/
-*.pyc
-*.pyo
+# TLS certificates (generated locally — never commit private keys)
+certs/
