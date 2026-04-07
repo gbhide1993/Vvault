@@ -10,3 +10,4 @@ python-multipart
 pymupdf
 bcrypt
 python-jose[cryptography]
+python-docx

@@ -50,13 +50,42 @@ async def upload_excel(request: Request, file: UploadFile = File(...)):
     org_id = getattr(request.state, "username", "default")
     run_id = str(uuid.uuid4())
 
-    if not file.filename.endswith(".xlsx"):
-        raise HTTPException(status_code=400, detail="Only .xlsx files supported")
-
+    allowed = (".xlsx", ".docx", ".pdf")
+    if not file.filename.lower().endswith(allowed):
+        raise HTTPException(status_code=400, detail="Only .xlsx, .docx, and .pdf files supported")
     contents = await file.read()
     excel_file = io.BytesIO(contents)
 
-    rows, sheet_data = parse_excel(excel_file)
+    fname = file.filename.lower()
+
+    if fname.endswith(".docx"):
+        from docx import Document as DocxDocument
+        doc = DocxDocument(io.BytesIO(contents))
+        paragraphs = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+        for table in doc.tables:
+            for row in table.rows:
+                cell = row.cells[0].text.strip()
+                if cell:
+                    paragraphs.append(cell)
+        from app.utils.rag_excel_parser import is_valid_question
+        questions = [q for q in paragraphs if is_valid_question(q)]
+        rows = [{"index": i, "question": q, "sheet": "Document", "row_idx": i} for i, q in enumerate(questions)]
+        sheet_data = {"Document": {"df": None, "rows": rows}}
+
+    elif fname.endswith(".pdf"):
+        import fitz
+        doc = fitz.open(stream=contents, filetype="pdf")
+        lines = []
+        for page in doc:
+            lines.extend(page.get_text().splitlines())
+        from app.utils.rag_excel_parser import is_valid_question
+        questions = [l.strip() for l in lines if is_valid_question(l.strip())]
+        rows = [{"index": i, "question": q, "sheet": "PDF Document", "row_idx": i} for i, q in enumerate(questions)]
+        sheet_data = {"PDF Document": {"df": None, "rows": rows}}
+
+    else:
+        excel_file = io.BytesIO(contents)
+        rows, sheet_data = parse_excel(excel_file)
 
     if len(rows) == 0:
         raise HTTPException(status_code=400, detail="No valid questions found")

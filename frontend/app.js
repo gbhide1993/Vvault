@@ -229,6 +229,7 @@ function showApp() {
   document.getElementById("app-container").style.display = "block";
 
   const role = localStorage.getItem("role");
+  const username = localStorage.getItem("user") || "";
   const section = document.querySelector("#userTable")?.closest(".section");
 
   if (role === "admin") {
@@ -237,11 +238,18 @@ function showApp() {
     if (section) section.style.display = "none";
   }
 
+  const initials = username.substring(0, 2).toUpperCase();
+  const avatarCircle = document.getElementById("avatarCircle");
+  const avatarName = document.getElementById("avatarName");
+  const avatarRole = document.getElementById("avatarRole");
+  if (avatarCircle) avatarCircle.innerText = initials;
+  if (avatarName) avatarName.innerText = username;
+  if (avatarRole) avatarRole.innerText = role;
+
   loadKnowledgeFiles();
   loadUsers();
   loadAuditLogs();
 
-  // Call these only if the functions exist (added in later sprints)
   if (typeof loadRuns === "function") loadRuns();
   if (typeof loadLibrary === "function") loadLibrary();
   if (typeof restoreLastSession === "function") restoreLastSession();
@@ -576,6 +584,18 @@ async function uploadKnowledge() {
 
 
 // ---------- AUTOFILL ----------
+function showProgressBar(pct, label) {
+  const el = document.getElementById("progressText");
+  if (!el) return;
+  el.innerHTML = `
+    <div style="margin-bottom:6px;">${label}</div>
+    <div style="background:#eee;border-radius:4px;height:10px;width:100%;max-width:400px;">
+      <div style="background:#1a73e8;height:10px;border-radius:4px;width:${pct}%;transition:width 0.5s;"></div>
+    </div>
+    <div style="font-size:12px;color:#888;margin-top:4px;">${pct}% complete</div>
+  `;
+}
+
 async function runAutofill() {
   if (isProcessing) return;
 
@@ -588,37 +608,45 @@ async function runAutofill() {
   const formData = new FormData();
   formData.append("file", file);
 
+  let fakePct = 0;
+  showProgressBar(0, "Submitting questionnaire...");
+  setStep("step-processing", "active");
+
+  const fakeTimer = setInterval(() => {
+    if (fakePct < 85) {
+      fakePct += Math.random() * 6;
+      fakePct = Math.min(fakePct, 85);
+      showProgressBar(Math.round(fakePct), "Processing questions with AI...");
+    }
+  }, 1500);
+
   try {
-    document.getElementById("progressText").innerText =
-      "Processing started...";
-
-    setStep("step-processing", "active");
-
     const res = await fetch(`${BASE_URL}/upload`, {
       method: "POST",
       headers: authHeaders(),
       body: formData,
     });
 
+    clearInterval(fakeTimer);
     currentRunId = res.headers.get("X-Run-Id");
     localStorage.setItem("lastRunId", currentRunId);
-    console.log("Run ID:", currentRunId);
 
-    if (!res.ok) throw new Error("Processing failed");
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || "Processing failed");
+    }
 
     finalFileBlob = await res.blob();
-
-    document.getElementById("progressText").innerText = "Completed";
-
+    showProgressBar(100, "Processing complete!");
     setStep("step-processing", "done");
     setStep("step-complete", "done");
-
     await loadPreview();
 
   } catch (err) {
+    clearInterval(fakeTimer);
     console.error(err);
-    document.getElementById("progressText").innerText =
-      "Error: " + err.message;
+    document.getElementById("progressText").innerHTML =
+      "<span style='color:red;'>Error: " + err.message + "</span>";
   }
 
   toggleButtons(false);
@@ -705,7 +733,12 @@ async function loadPreview() {
             ${item.status || "pending"}
           </span>
         </td>
+        <td style="white-space:nowrap;">
+          <button id="evBtn-${item.id}" onclick="openEvidenceModal(${item.id})"
+            style="font-size:11px;padding:3px 8px;">+ Evidence</button>
+        </td>
       `;
+      loadEvidenceCount(item.id);
 
       tbody.appendChild(row);
     });
@@ -894,6 +927,122 @@ function nextPage(totalPages) {
   }
 }
 
+
+
+// ---------- EVIDENCE MODAL ----------
+
+function createEvidenceModal() {
+  if (document.getElementById("evidenceModal")) return;
+  const modal = document.createElement("div");
+  modal.id = "evidenceModal";
+  modal.style.cssText = "display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;";
+  modal.innerHTML = `
+    <div style="background:white;border-radius:12px;padding:24px;width:480px;max-width:90vw;max-height:80vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h3 style="margin:0;font-size:16px;">Evidence</h3>
+        <span onclick="closeEvidenceModal()" style="cursor:pointer;font-size:22px;color:#888;line-height:1;">&times;</span>
+      </div>
+      <div id="modalEvList" style="margin-bottom:16px;max-height:200px;overflow-y:auto;"></div>
+      <hr style="margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:500;margin-bottom:8px;">Add evidence</div>
+      <select id="modalEvType" style="width:100%;margin-bottom:8px;padding:6px;">
+        <option value="note">Note</option>
+        <option value="policy_quote">Policy quote</option>
+        <option value="document">Document</option>
+      </select>
+      <textarea id="modalEvContent" placeholder="Evidence content..." rows="3"
+        style="width:100%;margin-bottom:8px;padding:6px;box-sizing:border-box;"></textarea>
+      <input id="modalEvFile" placeholder="Filename (optional)"
+        style="width:100%;margin-bottom:12px;padding:6px;box-sizing:border-box;">
+      <button onclick="submitEvidenceModal()" style="width:100%;padding:8px;">Save evidence</button>
+    </div>
+  `;
+  document.body.appendChild(modal);
+  modal.addEventListener("click", e => { if (e.target === modal) closeEvidenceModal(); });
+}
+
+let _currentEvCacheId = null;
+
+async function openEvidenceModal(cacheId) {
+  createEvidenceModal();
+  _currentEvCacheId = cacheId;
+  const modal = document.getElementById("evidenceModal");
+  modal.style.display = "flex";
+  document.getElementById("modalEvContent").value = "";
+  document.getElementById("modalEvFile").value = "";
+  await loadEvidenceModalList(cacheId);
+}
+
+function closeEvidenceModal() {
+  const modal = document.getElementById("evidenceModal");
+  if (modal) modal.style.display = "none";
+  _currentEvCacheId = null;
+}
+
+async function loadEvidenceModalList(cacheId) {
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, { headers: authHeaders() });
+    const items = await res.json();
+    const el = document.getElementById("modalEvList");
+    if (!el) return;
+    if (!items.length) {
+      el.innerHTML = "<p style='color:#888;font-size:13px;'>No evidence yet.</p>";
+      return;
+    }
+    el.innerHTML = items.map(e => `
+      <div style="background:#f5f5f5;padding:8px 10px;border-radius:6px;margin-bottom:6px;font-size:13px;">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+          <div style="flex:1;">
+            <span style="font-weight:500;color:#555;">${e.evidence_type}:</span> ${e.content}
+            ${e.filename ? `<div style="font-size:11px;color:#888;margin-top:2px;">${e.filename}</div>` : ""}
+          </div>
+          <span onclick="deleteEvidenceModal(${e.id},${cacheId})"
+                style="cursor:pointer;color:red;font-size:18px;flex-shrink:0;">&times;</span>
+        </div>
+      </div>
+    `).join("");
+  } catch (err) { console.error("loadEvidenceModalList:", err); }
+}
+
+async function loadEvidenceCount(cacheId) {
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, { headers: authHeaders() });
+    const items = await res.json();
+    const btn = document.getElementById("evBtn-" + cacheId);
+    if (btn) btn.innerText = items.length > 0 ? "Evidence (" + items.length + ")" : "+ Evidence";
+  } catch (err) {}
+}
+
+async function submitEvidenceModal() {
+  const content = document.getElementById("modalEvContent")?.value.trim();
+  const evType = document.getElementById("modalEvType")?.value;
+  const filename = document.getElementById("modalEvFile")?.value.trim();
+  if (!content) { alert("Enter evidence content"); return; }
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${_currentEvCacheId}`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ evidence_type: evType, content, filename })
+    });
+    if (res.ok) {
+      document.getElementById("modalEvContent").value = "";
+      document.getElementById("modalEvFile").value = "";
+      await loadEvidenceModalList(_currentEvCacheId);
+      await loadEvidenceCount(_currentEvCacheId);
+    }
+  } catch (err) { console.error("submitEvidenceModal:", err); }
+}
+
+async function deleteEvidenceModal(evidenceId, cacheId) {
+  if (!confirm("Delete this evidence?")) return;
+  try {
+    await fetch(`${BASE_URL}/cache/evidence/${evidenceId}`, {
+      method: "DELETE", headers: authHeaders()
+    });
+    await loadEvidenceModalList(cacheId);
+    await loadEvidenceCount(cacheId);
+  } catch (err) { console.error("deleteEvidenceModal:", err); }
+}
 
 // ---------- EXPOSE ----------
 window.filterTable = filterTable;

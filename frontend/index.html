@@ -1,18 +1,24 @@
-
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Vvault</title>
+  <title>Vvault - SOC2 Autofill</title>
   <link rel="stylesheet" href="styles.css">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23080c10'/><polygon points='16,23 6,8 9,8 16,19 23,8 26,8' fill='%2300d4aa'/></svg>">
 </head>
-
 <body>
 
 <!-- LOGIN -->
-<div id="login-container" class="center-box" style="display:none;">
-  <h2>Vvault</h2>
+<div id="login-container" class="center-box" style="display:none; max-width:360px; margin:120px auto; background:white; padding:32px; border-radius:12px; box-shadow:0 2px 16px rgba(0,0,0,0.08);">
+  <div style="display:flex; align-items:center; justify-content:center; gap:10px; margin-bottom:8px;">
+    <svg width="36" height="36" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <rect width="32" height="32" rx="7" fill="#080c10"/>
+      <polygon points="16,23 6,8 9,8 16,19 23,8 26,8" fill="#00d4aa"/>
+    </svg>
+    <h2 style="margin:0;">Vvault</h2>
+  </div>
+  <p style="text-align:center; font-size:13px; color:#888; margin-bottom:20px;">SOC2 answers. Zero cloud exposure.</p>
   <input type="text" id="username" placeholder="Username" style="display:block; margin-bottom:8px; width:100%;">
-  <input type="password" id="password" placeholder="Password" style="display:block; margin-bottom:8px; width:100%;">
+  <input type="password" id="password" placeholder="Password" style="display:block; margin-bottom:12px; width:100%;">
   <button onclick="login()" style="width:100%;">Login</button>
   <div id="login-error" style="color:red; font-size:13px; margin-top:6px;"></div>
 </div>
@@ -21,10 +27,8 @@
 <div id="setup-container" style="display:none;" class="center-box">
   <h2>Welcome to Vvault</h2>
   <p style="font-size:13px; color:#666; margin-bottom:16px;">You must change the default password before continuing</p>
-  <input type="password" id="setupPassword" placeholder="New password (min 8 chars)"
-    style="display:block; margin-bottom:8px; width:100%;">
-  <input type="password" id="setupConfirm" placeholder="Confirm password"
-    style="display:block; margin-bottom:8px; width:100%;">
+  <input type="password" id="setupPassword" placeholder="New password (min 8 chars)" style="display:block; margin-bottom:8px; width:100%;">
+  <input type="password" id="setupConfirm" placeholder="Confirm password" style="display:block; margin-bottom:8px; width:100%;">
   <button onclick="completeSetup()" style="width:100%;">Set password and continue</button>
   <div id="setup-error" style="color:red; font-size:13px; margin-top:6px;"></div>
 </div>
@@ -34,18 +38,31 @@
 
   <!-- HEADER -->
   <div class="header">
-    <h2>Vvault Dashboard</h2>
-    <button onclick="logout()">Logout</button>
+    <div style="display:flex; align-items:center; gap:10px;">
+      <svg width="28" height="28" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <rect width="32" height="32" rx="7" fill="#080c10"/>
+        <polygon points="16,23 6,8 9,8 16,19 23,8 26,8" fill="#00d4aa"/>
+      </svg>
+      <h2 style="margin:0;">Vvault</h2>
+    </div>
+    <div style="display:flex; align-items:center; gap:12px; margin-left:auto;">
+      <div id="userAvatar" style="display:flex; align-items:center; gap:8px;">
+        <div id="avatarCircle" style="width:32px; height:32px; border-radius:50%; background:#1a73e8; color:white; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:600;"></div>
+        <div>
+          <div id="avatarName" style="font-size:13px; font-weight:500;"></div>
+          <div id="avatarRole" style="font-size:11px; color:#888; text-transform:capitalize;"></div>
+        </div>
+      </div>
+      <button onclick="logout()">Logout</button>
+    </div>
   </div>
 
   <!-- STEP 1 -->
   <div class="section">
     <h3>Step 1: Upload Knowledge Base</h3>
-    <p class="subtext">Upload company policies, security docs (PDF/TXT)</p>
-
+    <p class="subtext">Upload company policies, security docs (PDF/TXT/DOCX)</p>
     <input type="file" id="knowledgeFile">
     <button onclick="uploadKnowledge()">Upload</button>
-
     <div id="knowledgeList" style="margin-top:10px; font-size:13px;"></div>
     <div id="knowledgeStatus" class="status-text"></div>
   </div>
@@ -53,8 +70,7 @@
   <!-- STEP 2 -->
   <div class="section">
     <h3>Step 2: Upload Questionnaire</h3>
-    <p class="subtext">Upload SOC2 / security questionnaire (Excel)</p>
-
+    <p class="subtext">Upload SOC2 questionnaire (Excel, Word or PDF)</p>
     <input type="file" id="excelFile">
     <button onclick="runAutofill()">Run Autofill</button>
   </div>
@@ -62,24 +78,11 @@
   <!-- STATUS -->
   <div class="section">
     <h3>Status</h3>
-
     <div class="step-status">
-      <div class="step" id="step-knowledge">
-        <div class="circle"></div>
-        <span>Knowledge</span>
-      </div>
-
-      <div class="step" id="step-processing">
-        <div class="circle"></div>
-        <span>Processing</span>
-      </div>
-
-      <div class="step" id="step-complete">
-        <div class="circle"></div>
-        <span>Completed</span>
-      </div>
+      <div class="step" id="step-knowledge"><div class="circle"></div><span>Knowledge</span></div>
+      <div class="step" id="step-processing"><div class="circle"></div><span>Processing</span></div>
+      <div class="step" id="step-complete"><div class="circle"></div><span>Completed</span></div>
     </div>
-
     <div id="progressText">Idle</div>
   </div>
 
@@ -106,26 +109,14 @@
 
     <!-- SEARCH + FILTER + ACTIONS -->
     <div style="display:flex; justify-content:space-between; margin-bottom:10px; gap:10px;">
-
       <div style="display:flex; gap:10px;">
-        <input 
-          type="text" 
-          id="searchInput" 
-          placeholder="Search questions..." 
-          oninput="filterTable()"
-          style="padding:6px; width:250px;"
-        />
-
-        <button onclick="toggleLowConfidence()" id="lowFilterBtn">
-          Show Low Confidence
-        </button>
+        <input type="text" id="searchInput" placeholder="Search questions..." oninput="filterTable()" style="padding:6px; width:250px;"/>
+        <button onclick="toggleLowConfidence()" id="lowFilterBtn">Show Low Confidence</button>
       </div>
-
       <div>
         <button onclick="bulkApprove()">Approve Selected</button>
         <button onclick="bulkReject()">Reject Selected</button>
       </div>
-
     </div>
 
     <!-- TABLE -->
@@ -138,6 +129,8 @@
           <th>Confidence</th>
           <th>Source</th>
           <th>Status</th>
+          <th style="min-width:160px;">Evidence</th>
+          <th>Evidence</th>
         </tr>
       </thead>
       <tbody></tbody>
@@ -153,12 +146,7 @@
     <h3>Audit Logs</h3>
     <table id="auditTable">
       <thead>
-        <tr>
-          <th>User</th>
-          <th>Action</th>
-          <th>Question</th>
-          <th>Time</th>
-        </tr>
+        <tr><th>User</th><th>Action</th><th>Question</th><th>Time</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -168,26 +156,16 @@
   <div class="section" id="librarySection">
     <h3>Answer Library</h3>
     <p class="subtext">All approved answers — reused automatically in future questionnaires</p>
-
     <div style="margin-bottom:16px; padding-bottom:16px; border-bottom:1px solid #eee;">
-      <textarea id="manualQuestion" placeholder="Question" rows="2"
-        style="width:100%; margin-bottom:8px; padding:6px; box-sizing:border-box;"></textarea>
-      <textarea id="manualAnswer" placeholder="Answer" rows="3"
-        style="width:100%; margin-bottom:8px; padding:6px; box-sizing:border-box;"></textarea>
+      <textarea id="manualQuestion" placeholder="Question" rows="2" style="width:100%; margin-bottom:8px; padding:6px; box-sizing:border-box;"></textarea>
+      <textarea id="manualAnswer" placeholder="Answer" rows="3" style="width:100%; margin-bottom:8px; padding:6px; box-sizing:border-box;"></textarea>
       <button onclick="addManualEntry()">Add to library</button>
       <span id="manualEntryMsg" style="margin-left:10px; font-size:13px; color:green;"></span>
     </div>
-
-    <input type="text" id="librarySearch" placeholder="Search questions..."
-      oninput="loadLibrary()" style="width:100%; margin-bottom:10px; padding:6px; box-sizing:border-box;">
+    <input type="text" id="librarySearch" placeholder="Search questions..." oninput="loadLibrary()" style="width:100%; margin-bottom:10px; padding:6px; box-sizing:border-box;">
     <table id="libraryTable">
       <thead>
-        <tr>
-          <th>Question</th>
-          <th>Answer</th>
-          <th>Source</th>
-          <th>Action</th>
-        </tr>
+        <tr><th>Question</th><th>Answer</th><th>Source</th><th>Action</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -196,25 +174,18 @@
   <!-- USER MANAGEMENT -->
   <div class="section">
     <h3>User Management (Admin Only)</h3>
-
     <div style="margin-bottom:10px;">
       <input id="newUsername" placeholder="Username" />
       <input id="newUserPassword" type="password" placeholder="Password (min 8 chars)" />
-
       <select id="newUserRole">
         <option value="viewer">Viewer</option>
         <option value="admin">Admin</option>
       </select>
       <button onclick="createUser()">Create User</button>
     </div>
-
     <table id="userTable">
       <thead>
-        <tr>
-          <th>Username</th>
-          <th>Role</th>
-          <th>Action</th>
-        </tr>
+        <tr><th>Username</th><th>Role</th><th>Action</th></tr>
       </thead>
       <tbody></tbody>
     </table>
@@ -223,7 +194,5 @@
 </div>
 
 <script src="app.js"></script>
-
 </body>
 </html>
-

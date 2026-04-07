@@ -97,3 +97,33 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     run_id TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+
+
+
+-- Jobs table for async processing
+CREATE TABLE IF NOT EXISTS jobs (
+    run_id TEXT PRIMARY KEY,
+    status TEXT DEFAULT 'pending',
+    progress INT DEFAULT 0,
+    total INT DEFAULT 0,
+    source_template INT DEFAULT 0,
+    source_llm INT DEFAULT 0,
+    source_cache INT DEFAULT 0,
+    source_fallback INT DEFAULT 0,
+    error TEXT,
+    started_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Evidence table for answer attachments
+CREATE TABLE IF NOT EXISTS evidence (
+    id SERIAL PRIMARY KEY,
+    cache_id INT REFERENCES qa_cache(id) ON DELETE CASCADE,
+    org_id TEXT DEFAULT 'default',
+    evidence_type TEXT DEFAULT 'note',
+    content TEXT,
+    filename TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
