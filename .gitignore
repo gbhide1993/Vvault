@@ -27,4 +27,4 @@ certs/
 # Database backups
 backups/
 
-.claude/
+*.vvault-license
