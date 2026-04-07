@@ -31,6 +31,7 @@ services:
       - "8000:8000"
     volumes:
        - .:/app  
+       - ./vvault-vvault-internal-2027.vvault-license:/app/vvault-vvault-internal-2027.vvault-license
 
   frontend:
       build: ./frontend
