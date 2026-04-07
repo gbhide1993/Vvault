@@ -1102,7 +1102,7 @@ async function refreshEvidenceList(cacheId) {
         <span class="evidence-type-badge">${ev.evidence_type}</span>
         <div style="flex:1;">
           <div class="evidence-content">${ev.content || ""}${ev.filename ? ` <em style="color:#888">(${ev.filename})</em>` : ""}</div>
-          <div class="evidence-meta">Added by ${ev.created_by} · ${new Date(ev.created_at).toLocaleString()}</div>
+          <div class="evidence-meta">Added by ${ev.created_by} : ${new Date(ev.created_at).toLocaleString()}</div>
         </div>
         <button onclick="deleteEvidence(${ev.id}, ${cacheId})"
           style="font-size:11px; padding:2px 6px; background:#dc3545;">Delete</button>

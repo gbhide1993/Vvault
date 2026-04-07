@@ -1,6 +1,9 @@
 def detect_dropdown_columns(df):
     dropdown_cols = {}
 
+    if df is None:
+        return dropdown_cols
+
     for col in df.columns:
         unique_vals = df[col].dropna().unique()
 
