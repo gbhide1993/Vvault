@@ -1,0 +1,15 @@
+-----BEGIN VVAULT LICENSE-----
+{
+  "payload": "eyJlbWFpbCI6ImdpcmlzaEBnZXR2dmF1bHQuY29tIiwiY29tcGFueSI6IlZ2YXVsdCBJbnRlcm5hbCIsInBsYW4iOiJhbm51YWwiLCJtYXhfdXNlcnMiOjk5OSwiaXNzdWVkX2F0IjoiMjAyNi0wNC0wNyIsImV4cGlyZXNfYXQiOiIyMDI3LTA0LTA3IiwidmVyc2lvbiI6IjEuMCIsInByb2R1Y3QiOiJ2dmF1bHQifQ==",
+  "signature": "adMWJMqA4yqbIgrOun6eJddCKUoB4aSKHFBGojW/NifUxwiJ9mEZx73xqdeiITjCe4rXgNthAJy0uCiHqBXY/JejseK6pa+/KEq8YIdVRSXriHdbknRHe+Bt9SzBBRmlJxrKoHwZ0n0qkJ4wJGzy4OyW6OzBgvLMuhtt/I+h9J3ffAlmQJPMBMONcOXKTSe8iyc0F2RHDxqH+sy5isptqldNuMC3g90iYtE/M2h3Yw50yjqb7epB8MpNVwi98OZCpd/Dpps2dN2cHA8gFRQkt2O/gVaCMyhlZoxa3OkGZvYXnThAjfXUdlWPuL4H9u1+kWo8D/BzX2GMy7/g6Hjrcw=="
+}
+-----END VVAULT LICENSE-----
+
+Licensed to: Vvault Internal (girish@getvvault.com)
+Plan: annual
+Expires: 07 April 2027
+Max users: 999
+
+This license file is cryptographically signed.
+Do not modify this file — it will become invalid.
+Support: support@getvvault.com
