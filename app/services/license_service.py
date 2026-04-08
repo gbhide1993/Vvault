@@ -25,13 +25,7 @@ from cryptography.exceptions import InvalidSignature
 # Keep the exact formatting including newlines.
 
 PUBLIC_KEY_PEM = """-----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArkPNeMKhtAfjNbS1s1vS
-89+ZKVvRuSb+t7S6w0WcJVK+1JOW6tsUpp5bItp+t0W/a6/hJDFmcycYYdGtibx6
-E7nt7Cw3D8ZqiHgqurrjqFMREFbd6ckDFnFd/edAhCqPKdqCWZ09tI4iNEsdehyk
-+k1wHG7fjjgQ54yaojjf6M2mjEmNh2hBvMEJ6+LRjeyKf7gqKhq6HW3YUNabnCi3
-ArVGj7OeqIqsxdwrwg7ZgkQ/hObghdRxg5GzOAX6bG6ZXQInEVzHkD/Aiob0tRcr
-BjsLhZjmw10chbg3YKU/3Q6Pd9r0XgEYi/K9xaD39Lqz4HM+8UZZ2qnqMhhr6ziR
-XQIDAQAB
+REPLACE_WITH_YOUR_PUBLIC_KEY_CONTENT
 -----END PUBLIC KEY-----"""
 
 # ── LICENSE STATUS ──
@@ -80,32 +74,22 @@ def find_license_file() -> Optional[str]:
 def parse_license_file(filepath: str) -> Optional[dict]:
     """Extract JSON payload from the license file."""
     try:
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(filepath, 'r') as f:
             content = f.read()
-
-        begin_marker = '-----BEGIN VVAULT LICENSE-----'
-        end_marker = '-----END VVAULT LICENSE-----'
-
-        start = content.find(begin_marker)
-        end = content.find(end_marker)
-
+        
+        # Extract between markers
+        start = content.find('-----BEGIN VVAULT LICENSE-----')
+        end = content.find('-----END VVAULT LICENSE-----')
+        
         if start == -1 or end == -1:
             return None
-
-        between = content[start + len(begin_marker):end].strip()
-
-        json_start = between.find('{')
-        json_end = between.rfind('}') + 1
-
-        if json_start == -1 or json_end == 0:
-            return None
-
-        json_only = between[json_start:json_end]
-        return json.loads(json_only)
-
-    except Exception as e:
-        print(f"License parse error: {e}")
+        
+        json_content = content[start + len('-----BEGIN VVAULT LICENSE-----'):end].strip()
+        return json.loads(json_content)
+    
+    except Exception:
         return None
+
 
 def verify_signature(license_data: dict) -> Optional[dict]:
     """
