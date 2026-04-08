@@ -1,0 +1,35 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies first (layer caching)
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy ONLY application code — explicit, no surprises
+# .dockerignore in repo root handles additional exclusions
+COPY app/ ./app/
+COPY db/ ./db/
+
+# Create license directory (mounted from host at runtime)
+# Source code NOT copied here — license file stays on customer machine
+RUN mkdir -p /app/license
+
+# ── SECURITY: Run as non-root user ───────────────────────────
+RUN useradd -m -u 1000 vvault && chown -R vvault:vvault /app
+USER vvault
+
+EXPOSE 8000
+
+# Production: no --reload flag (dev only)
+CMD ["uvicorn", "app.main:app", \
+     "--host", "0.0.0.0", \
+     "--port", "8000", \
+     "--timeout-keep-alive", "3600", \
+     "--workers", "2"]
