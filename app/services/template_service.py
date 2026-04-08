@@ -1,7 +1,10 @@
+import logging
 import numpy as np
 from app.services.embedding_service import generate_embedding
 import re
 import hashlib
+
+logger = logging.getLogger(__name__)
 
 def normalize(text):
     text = text.lower()
@@ -86,13 +89,13 @@ def init_template_embeddings_once():
     if INITIALIZED:
         return
 
-    print("⚡ Initializing template embeddings...")
+    logger.debug("Initializing template embeddings...")
 
     for key, text in TEMPLATES.items():
         try:
             TEMPLATE_EMBEDDINGS[key] = generate_embedding(text)
         except Exception as e:
-            print(f"❌ Template embedding failed: {e}")
+            logger.error("Template embedding failed: %s", e)
 
     INITIALIZED = True
 

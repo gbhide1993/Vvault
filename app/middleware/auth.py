@@ -2,10 +2,12 @@ from fastapi.responses import JSONResponse
 from jose import jwt, JWTError
 import os
 
-SECRET_KEY = os.getenv("JWT_SECRET", "insecure-default-change-me")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET environment variable is not set. Cannot start.")
 ALGORITHM = "HS256"
 
-SKIP_PATHS = {"/auth/login", "/docs", "/openapi.json", "/redoc"}
+SKIP_PATHS = {"/auth/login", "/docs", "/openapi.json", "/redoc", "/health"}
 
 
 async def auth_middleware(request, call_next):

@@ -1,4 +1,7 @@
+import logging
 import requests
+
+logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://ollama:11434/api/generate"
 MODEL = "phi3:mini"
@@ -19,14 +22,12 @@ def generate_answer(prompt: str, context: str = "") -> str:
         timeout=120
     )
 
-    print("Ollama response status:", response.status_code)
-
+    logger.debug("Ollama response status: %s", response.status_code)
 
     try:
         data = response.json()
-        print("Ollama parsed response:", data)
-
+        logger.debug("Ollama parsed response: %s", data)
         return data.get("response", "").strip()
     except Exception as e:
-        print("❌ JSON parse error:", str(e))
+        logger.error("JSON parse error: %s", str(e))
         return "Error generating answer"

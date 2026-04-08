@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 import io
@@ -5,6 +6,8 @@ import pandas as pd
 import uuid
 import time
 import threading
+
+logger = logging.getLogger(__name__)
 
 from app.utils.rag_excel_parser import parse_excel, is_valid_question
 from app.utils.excel_writer import write_answers
@@ -81,8 +84,8 @@ def clean_answer(text: str) -> str:
     text = text.strip(" .")
 
     words = text.split()
-    if len(words) > 25:
-        text = " ".join(words[:25])
+    if len(words) > 60:
+        text = " ".join(words[:60])
 
     if len(text) > 1:
         text = text[0].upper() + text[1:]
@@ -104,7 +107,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
             df = data["df"]
             dropdown_map[sheet_name] = detect_dropdown_columns(df) if df is not None else {}
 
-        print("Dropdown map:", dropdown_map)
+        logger.debug("Dropdown map: %s", dropdown_map)
 
         _bench_start = time.time()
         _bench_stats = {"cache": [], "template": [], "llm": [], "fallback": []}
@@ -158,8 +161,17 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
 
                 else:
                     # ---------------- LLM ----------------
-                    kb_context = retrieve_knowledge(question, org_id=org_id)
-                    rag_context = retrieve_top_k(question)
+                    try:
+                        kb_context = retrieve_knowledge(question, org_id=org_id)
+                    except Exception as _e:
+                        logger.error("retrieve_knowledge failed: %s", _e)
+                        kb_context = ""
+
+                    try:
+                        rag_context = retrieve_top_k(question)
+                    except Exception as _e:
+                        logger.error("retrieve_top_k failed: %s", _e)
+                        rag_context = ""
 
                     # 👇 NEW: Evidence collection
                     evidence = []
@@ -227,7 +239,7 @@ Answer:
                         # 🔥 CORE FIX: ALWAYS USE CONTEXT IF AVAILABLE
                         if context.strip():
                             if is_bad:
-                                print("⚠️ Using context instead of weak LLM output")
+                                logger.debug("Using context instead of weak LLM output")
 
                                 cleaned = context.replace("\n", " ").strip()
                                 sentences = cleaned.split(".")
@@ -236,14 +248,14 @@ Answer:
                                 llm_answer = base.strip()
 
                             else:
-                                print("✅ Good LLM answer")
+                                logger.debug("Good LLM answer")
 
                         else:
                             # No context at all → fallback
                             llm_answer = "Security controls are implemented based on organizational policies and best practices."
 
                         llm_answer = clean_answer(llm_answer)
-                        print("LLM Answer Debug:", llm_answer)
+                        logger.debug("LLM Answer: %s", llm_answer)
                         confidence, justification = build_confidence("llm", context)
 
                         answer_obj = AnswerMetadata(
@@ -295,7 +307,7 @@ Answer:
                     break
 
 
-            print("FINAL ANSWER DEBUG:", final_answer)
+            logger.debug("Final answer: %s", final_answer)
             answers[idx] = {
                 "answer": final_answer,
                 "confidence": int(answer_obj.confidence * 100),
@@ -320,25 +332,23 @@ Answer:
 
         _total = time.time() - _bench_start
         _total_q = len(rows)
-        print("")
-        print("=" * 55)
-        print(f"  VVAULT BENCHMARK — {_total_q} questions")
-        print("=" * 55)
+        qpm = (_total_q / _total) * 60 if _total > 0 else 0
         mins = int(_total // 60)
         secs = int(_total % 60)
-        print(f"  Total time:     {mins}m {secs}s")
+        bench_lines = [
+            f"VVAULT BENCHMARK — {_total_q} questions",
+            f"Total time: {mins}m {secs}s",
+        ]
         for src, times in _bench_stats.items():
             if times:
                 avg = sum(times) / len(times)
-                print(f"  {src:<12} {len(times):>4} questions  avg {avg:.1f}s")
-        qpm = (_total_q / _total) * 60 if _total > 0 else 0
-        print(f"  Rate:           {qpm:.1f} questions/minute")
+                bench_lines.append(f"{src}: {len(times)} questions avg {avg:.1f}s")
+        bench_lines.append(f"Rate: {qpm:.1f} questions/minute")
         if _bench_stats.get("llm"):
             llm_avg = sum(_bench_stats["llm"]) / len(_bench_stats["llm"])
             est_300_llm = (llm_avg * 300) / 60
-            print(f"  Est. 300q LLM:  {est_300_llm:.0f} minutes (LLM only)")
-        print("=" * 55)
-        print("")
+            bench_lines.append(f"Est. 300q LLM: {est_300_llm:.0f} minutes (LLM only)")
+        logger.warning(" | ".join(bench_lines))
 
         output = write_answers(sheet_data, answers, rows)
         with open(f"/tmp/{run_id}.xlsx", "wb") as f:
@@ -347,7 +357,7 @@ Answer:
 
     except Exception as e:
         fail_job(run_id, str(e))
-        print(f"Job {run_id} failed: {e}")
+        logger.error("Job %s failed: %s", run_id, e)
 
 
 @router.post("/upload")

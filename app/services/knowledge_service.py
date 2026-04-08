@@ -1,10 +1,11 @@
+import logging
 from app.services.cache_db import get_conn
 from app.services.embedding_service import generate_embedding
 from psycopg2.extras import RealDictCursor
 import fitz  # PyMuPDF
 import re
 
-import re
+logger = logging.getLogger(__name__)
 
 def chunk_text(text: str):
     """
@@ -157,5 +158,5 @@ def get_uploaded_sources(org_id=None):
         return [r[0] for r in rows]
 
     except Exception as e:
-        print("❌ get_uploaded_sources error:", str(e))
+        logger.error("get_uploaded_sources error: %s", str(e))
         return []

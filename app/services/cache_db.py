@@ -166,6 +166,19 @@ def approve_all_pending(org_id=None):
 
     return count
 
+def check_db_health():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT 1 FROM pg_extension WHERE extname = 'vector';")
+    result = cur.fetchone()
+    cur.close()
+    conn.close()
+    if not result:
+        raise RuntimeError(
+            "pgvector extension is not installed. Run: CREATE EXTENSION vector;"
+        )
+
+
 def get_record_by_id(cache_id):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)

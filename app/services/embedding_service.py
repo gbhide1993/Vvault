@@ -1,6 +1,9 @@
+import logging
 import requests
 import json
 import time
+
+logger = logging.getLogger(__name__)
 
 def generate_embedding(text):
     url = "http://ollama:11434/api/embeddings"
@@ -14,9 +17,8 @@ def generate_embedding(text):
         try:
             response = requests.post(url, json=payload, timeout=10)
 
-            # 🔍 DEBUG (keep for now)
-            print("Ollama response status:", response.status_code)
-            print("Ollama raw response:", response.text[:200])
+            logger.debug("Ollama response status: %s", response.status_code)
+            logger.debug("Ollama raw response: %s", response.text[:200])
 
             if response.status_code != 200:
                 raise Exception("Bad response")
@@ -41,7 +43,7 @@ def generate_embedding(text):
                     continue
 
         except Exception as e:
-            print(f"⏳ Ollama not ready or bad response (attempt {attempt+1})")
+            logger.debug("Ollama not ready or bad response (attempt %d): %s", attempt + 1, e)
             time.sleep(2)
 
     raise ValueError("Failed to parse embedding response")

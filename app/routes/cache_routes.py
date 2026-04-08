@@ -70,9 +70,7 @@ def approve(cache_id: int, request: Request):
             run_id=record.get("run_id")
         )
 
-    return {
-        "message": f"Cache ID {cache_id} approved"
-    }
+    return JSONResponse(status_code=200, content={"message": f"Cache ID {cache_id} approved"})
 
 
 # ----------------------------------
@@ -100,21 +98,20 @@ def reject(cache_id: int, request: Request):
             run_id=record.get("run_id")
         )
 
-    return {
-        "message": f"Cache ID {cache_id} rejected"
-    }
+    return JSONResponse(status_code=200, content={"message": f"Cache ID {cache_id} rejected"})
 
 # ----------------------------------
 # 4. BULK APPROVE
 # ----------------------------------
 @router.post("/approve-all")
 def approve_all(request: Request):
+    if request.state.role != "admin":
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
+
     org_id = request.state.username
     count = approve_all_pending(org_id=org_id)
 
-    return {
-        "message": f"{count} records approved"
-    }
+    return JSONResponse(status_code=200, content={"message": f"{count} records approved"})
 
 
 # ----------------------------------

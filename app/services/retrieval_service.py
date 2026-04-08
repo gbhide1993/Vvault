@@ -1,5 +1,8 @@
+import logging
 from app.services.embedding_service import generate_embedding
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 # ----------------------------------
 # Load documents from text file
@@ -11,7 +14,7 @@ def load_documents():
         # simple chunking by paragraph
         return [doc.strip() for doc in text.split("\n\n") if doc.strip()]
     except Exception as e:
-        print(f"❌ Failed to load knowledge base: {e}")
+        logger.error("Failed to load knowledge base: %s", e)
         return []
 
 
@@ -42,7 +45,7 @@ def retrieve_top_k(query, k=3):
     # 1. Lazy embedding generation
     # ----------------------------------
     if doc_embeddings is None:
-        print("⚡ Generating document embeddings (one-time)...")
+        logger.debug("Generating document embeddings (one-time)...")
 
         doc_embeddings = []
         for doc in documents:
@@ -50,7 +53,7 @@ def retrieve_top_k(query, k=3):
                 emb = generate_embedding(doc)
                 doc_embeddings.append(emb)
             except Exception as e:
-                print(f"❌ Embedding failed for doc: {e}")
+                logger.error("Embedding failed for doc: %s", e)
                 doc_embeddings.append(None)
 
     # ----------------------------------
@@ -59,7 +62,7 @@ def retrieve_top_k(query, k=3):
     try:
         query_embedding = generate_embedding(query)
     except Exception as e:
-        print(f"❌ Query embedding failed: {e}")
+        logger.error("Query embedding failed: %s", e)
         return ""
 
     # ----------------------------------

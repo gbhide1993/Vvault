@@ -10,7 +10,9 @@ from app.services.user_service import authenticate_user, is_default_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-SECRET_KEY = os.getenv("JWT_SECRET", "insecure-default-change-me")
+SECRET_KEY = os.getenv("JWT_SECRET")
+if not SECRET_KEY:
+    raise RuntimeError("JWT_SECRET environment variable is not set. Cannot start.")
 ALGORITHM = "HS256"
 EXPIRY_HOURS = 12
 

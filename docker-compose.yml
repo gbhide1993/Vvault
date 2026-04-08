@@ -1,4 +1,3 @@
-
 services:
 
   db:
@@ -13,12 +12,18 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d vvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build: .
     container_name: vvault_backend
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     env_file:
       - .env  
     environment:
@@ -30,7 +35,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
-       - .:/app  
+      # Place your .vvault-license file in this folder before running
+      - .:/app
 
   frontend:
       build: ./frontend
