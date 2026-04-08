@@ -7,7 +7,9 @@ from app.services.cache_db import (
     update_status,
     approve_all_pending,
     get_approved_answers,
+    get_record_by_id,
 )
+from app.services.audit_service import log_action
 
 from app.services.confidence_service import build_confidence
 
@@ -77,9 +79,6 @@ def reject(cache_id: int, request: Request):
     if request.state.role != "admin":
         from fastapi.responses import JSONResponse
         return JSONResponse(status_code=403, content={"error": "Not authorized"})
-
-    from app.services.cache_db import get_record_by_id
-    from app.services.audit_service import log_action
 
     record = get_record_by_id(cache_id)
 
