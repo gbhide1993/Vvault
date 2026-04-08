@@ -876,6 +876,12 @@ async function loadPreview() {
             ${item.status || "pending"}
           </span>
         </td>
+        <td>
+          <button onclick="openEvidence(${item.id})"
+            style="font-size:11px; padding:4px 8px;">
+            Evidence ${item.evidence_count > 0 ? '(' + item.evidence_count + ')' : '+'}
+          </button>
+        </td>
       `;
 
       tbody.appendChild(row);
@@ -890,6 +896,269 @@ async function loadPreview() {
   }
 }
 
+
+// ---------- EVIDENCE ----------
+async function openEvidence(cacheId) {
+  const existingPanel = document.getElementById(`evidence-panel-${cacheId}`);
+
+  if (existingPanel) {
+    existingPanel.remove();
+    return;
+  }
+
+  const row = document.querySelector(`input[onchange="toggleSelect(${cacheId})"]`)
+    ?.closest("tr");
+
+  if (!row) return;
+
+  const colSpan = row.cells.length;
+  const panelRow = document.createElement("tr");
+  panelRow.id = `evidence-panel-row-${cacheId}`;
+
+  panelRow.innerHTML = `
+    <td colspan="${colSpan}" style="padding:0; background:#f8fbff;">
+      <div id="evidence-panel-${cacheId}" class="evidence-panel">
+
+        <div id="evidence-list-${cacheId}" style="margin-bottom:12px;">
+          <div style="color:#999; font-size:12px;">Loading evidence...</div>
+        </div>
+
+        <div style="border-top:1px solid #e0e0e0; padding-top:12px;">
+          <div style="font-size:12px; font-weight:600; margin-bottom:8px; color:#333;">
+            Add evidence
+          </div>
+          <textarea
+            id="evidenceContent_${cacheId}"
+            placeholder="Paste relevant policy text, quote, or note..."
+            style="width:100%; height:80px; font-size:13px; padding:8px;
+                   border:1px solid #ddd; border-radius:6px; resize:vertical;
+                   font-family:inherit; margin-bottom:8px;"
+          ></textarea>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <select id="evidenceType_${cacheId}"
+              style="font-size:13px; padding:6px 10px; border:1px solid #ddd;
+                     border-radius:6px; background:white;">
+              <option value="note">Note</option>
+              <option value="quote">Policy quote</option>
+              <option value="filename">Document reference</option>
+            </select>
+            <input
+              id="evidenceFile_${cacheId}"
+              type="text"
+              placeholder="Document name (optional)"
+              style="font-size:13px; padding:6px 10px; border:1px solid #ddd;
+                     border-radius:6px; flex:1; min-width:160px;"
+            />
+            <button onclick="addEvidence(${cacheId})"
+              style="padding:6px 16px; font-size:13px; white-space:nowrap;">
+              Add evidence
+            </button>
+            <span id="evidenceMsg_${cacheId}"
+              style="font-size:12px; display:none;"></span>
+          </div>
+        </div>
+
+      </div>
+    </td>
+  `;
+
+  row.after(panelRow);
+  loadEvidenceList(cacheId);
+}
+
+async function loadEvidenceList(cacheId) {
+  const listEl = document.getElementById(`evidence-list-${cacheId}`);
+  if (!listEl) return;
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, {
+      headers: authHeaders()
+    });
+    const items = await res.json();
+
+    if (!Array.isArray(items) || items.length === 0) {
+      listEl.innerHTML = `<div style="color:#999; font-size:12px; 
+        font-style:italic;">No evidence attached yet.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = items.map(item => `
+      <div class="evidence-item">
+        <span class="evidence-type-badge">${item.evidence_type}</span>
+        <div class="evidence-content">
+          <div>${item.content || ""}</div>
+          ${item.filename ? `<div style="font-size:11px; color:#888; 
+            margin-top:2px;">Document: ${item.filename}</div>` : ""}
+          <div class="evidence-meta">Added by ${item.created_by} 
+            on ${new Date(item.created_at).toLocaleDateString()}</div>
+        </div>
+        <button onclick="deleteEvidence(${item.id}, ${cacheId})"
+          style="font-size:11px; padding:2px 8px; color:#c00; 
+                 background:white; border:1px solid #fcc; border-radius:4px;
+                 cursor:pointer; white-space:nowrap;">
+          Delete
+        </button>
+      </div>
+    `).join("");
+
+  } catch (err) {
+    listEl.innerHTML = `<div style="color:red; font-size:12px;">
+      Failed to load evidence.</div>`;
+  }
+}
+
+async function addEvidence(cacheId) {
+  const content = document.getElementById(`evidenceContent_${cacheId}`)?.value.trim();
+  const type = document.getElementById(`evidenceType_${cacheId}`)?.value;
+  const filename = document.getElementById(`evidenceFile_${cacheId}`)?.value.trim();
+  const msgEl = document.getElementById(`evidenceMsg_${cacheId}`);
+
+  if (!content) {
+    if (msgEl) {
+      msgEl.style.display = "inline";
+      msgEl.style.color = "red";
+      msgEl.innerText = "Please enter some content";
+    }
+    return;
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ content, evidence_type: type, filename })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      if (msgEl) {
+        msgEl.style.display = "inline";
+        msgEl.style.color = "red";
+        msgEl.innerText = err.detail || "Failed to add evidence";
+      }
+      return;
+    }
+
+    document.getElementById(`evidenceContent_${cacheId}`).value = "";
+    document.getElementById(`evidenceFile_${cacheId}`).value = "";
+
+    if (msgEl) {
+      msgEl.style.display = "inline";
+      msgEl.style.color = "green";
+      msgEl.innerText = "Evidence added";
+      setTimeout(() => { msgEl.style.display = "none"; }, 2000);
+    }
+
+    loadEvidenceList(cacheId);
+    loadPreview();
+
+  } catch (err) {
+    if (msgEl) {
+      msgEl.style.display = "inline";
+      msgEl.style.color = "red";
+      msgEl.innerText = "Error: " + err.message;
+    }
+  }
+}
+
+async function deleteEvidence(evidenceId, cacheId) {
+  if (!confirm("Remove this evidence?")) return;
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${evidenceId}`, {
+      method: "DELETE",
+      headers: authHeaders()
+    });
+
+    if (res.ok) {
+      loadEvidenceList(cacheId);
+      loadPreview();
+    }
+  } catch (err) {
+    console.error("deleteEvidence error:", err);
+  }
+}
+
+
+
+async function refreshEvidenceList(cacheId) {
+  const listEl = document.getElementById(`evidence-list-${cacheId}`);
+  if (!listEl) return;
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, { headers: authHeaders() });
+    const items = await res.json();
+
+    if (!Array.isArray(items) || items.length === 0) {
+      listEl.innerHTML = '<div style="color:#999; font-size:12px;">No evidence yet.</div>';
+      return;
+    }
+
+    listEl.innerHTML = items.map(ev => `
+      <div class="evidence-item">
+        <span class="evidence-type-badge">${ev.evidence_type}</span>
+        <div style="flex:1;">
+          <div class="evidence-content">${ev.content || ""}${ev.filename ? ` <em style="color:#888">(${ev.filename})</em>` : ""}</div>
+          <div class="evidence-meta">Added by ${ev.created_by} · ${new Date(ev.created_at).toLocaleString()}</div>
+        </div>
+        <button onclick="deleteEvidence(${ev.id}, ${cacheId})"
+          style="font-size:11px; padding:2px 6px; background:#dc3545;">Delete</button>
+      </div>
+    `).join("");
+  } catch (err) {
+    listEl.innerHTML = '<div style="color:red; font-size:12px;">Failed to load evidence.</div>';
+  }
+}
+
+async function addEvidence(cacheId) {
+  const content = document.getElementById(`evidenceContent_${cacheId}`)?.value.trim();
+  const evidence_type = document.getElementById(`evidenceType_${cacheId}`)?.value;
+  const filename = document.getElementById(`evidenceFilename_${cacheId}`)?.value.trim();
+  const msgEl = document.getElementById(`evidenceMsg_${cacheId}`);
+
+  if (!content) {
+    if (msgEl) { msgEl.style.color = "red"; msgEl.innerText = "Content is required."; }
+    return;
+  }
+
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ content, evidence_type, filename }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      if (msgEl) { msgEl.style.color = "red"; msgEl.innerText = err.detail || "Failed to add evidence."; }
+      return;
+    }
+
+    document.getElementById(`evidenceContent_${cacheId}`).value = "";
+    document.getElementById(`evidenceFilename_${cacheId}`).value = "";
+    if (msgEl) {
+      msgEl.style.color = "green";
+      msgEl.innerText = "Evidence added";
+      setTimeout(() => { msgEl.innerText = ""; }, 2000);
+    }
+
+    await refreshEvidenceList(cacheId);
+  } catch (err) {
+    if (msgEl) { msgEl.style.color = "red"; msgEl.innerText = "Error: " + err.message; }
+  }
+}
+
+async function deleteEvidence(evidenceId, cacheId) {
+  try {
+    const res = await fetch(`${BASE_URL}/cache/evidence/${evidenceId}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    if (res.ok) await refreshEvidenceList(cacheId);
+  } catch (err) {
+    console.error("deleteEvidence error:", err);
+  }
+}
 
 // ---------- SEARCH ----------
 function filterTable() {

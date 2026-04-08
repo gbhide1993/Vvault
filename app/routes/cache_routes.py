@@ -164,14 +164,18 @@ def get_all_cache(request: Request, run_id: str = None):
         return {"error": "run_id is required"}
 
     cur.execute("""
-            SELECT id, question, answer, confidence, source, source_text, status, 
-            justification, raw_context, matched_question, created_at, updated_at
-            FROM qa_cache
-            WHERE (%s IS NULL OR run_id = %s)
-            AND (org_id = %s OR org_id IS NULL OR org_id = '')
-            ORDER BY id DESC
+            SELECT q.id, q.question, q.answer, q.confidence, q.source, q.source_text,
+                   q.status, q.justification, q.raw_context, q.matched_question,
+                   q.created_at, q.updated_at,
+                   COUNT(e.id) AS evidence_count
+            FROM qa_cache q
+            LEFT JOIN evidence e ON e.cache_id = q.id AND e.org_id = %s
+            WHERE (q.run_id = %s)
+            AND (q.org_id = %s OR q.org_id IS NULL OR q.org_id = '')
+            GROUP BY q.id
+            ORDER BY q.id DESC
     """,
-        (run_id, run_id, org_id)
+        (org_id, run_id, org_id)
     )
 
     rows = cur.fetchall()
@@ -439,6 +443,79 @@ def download_job_result(run_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         filename="vvault_output.xlsx"
     )
+
+
+@router.post("/evidence/{cache_id}")
+def add_evidence(cache_id: int, request: Request, body: dict):
+    from app.services.cache_db import get_conn
+
+    content = (body.get("content") or "").strip()
+    evidence_type = body.get("evidence_type", "note")
+    filename = (body.get("filename") or "").strip() or None
+
+    if not content:
+        return JSONResponse(status_code=422, content={"detail": "content is required"})
+
+    if evidence_type not in ("note", "quote", "filename"):
+        evidence_type = "note"
+
+    org_id = request.state.username
+    created_by = request.state.username
+
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO evidence (cache_id, org_id, evidence_type, content, filename, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (cache_id, org_id, evidence_type, content, filename, created_by))
+    row = cur.fetchone()
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"id": row[0], "message": "Evidence added"}
+
+
+@router.get("/evidence/{cache_id}")
+def get_evidence(cache_id: int, request: Request):
+    from app.services.cache_db import get_conn
+    from psycopg2.extras import RealDictCursor
+
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT id, evidence_type, content, filename, created_by, created_at
+        FROM evidence
+        WHERE cache_id = %s AND org_id = %s
+        ORDER BY created_at ASC
+    """, (cache_id, org_id))
+    results = cur.fetchall()
+    cur.close()
+    conn.close()
+    return results
+
+
+@router.delete("/evidence/{evidence_id}")
+def delete_evidence(evidence_id: int, request: Request):
+    from app.services.cache_db import get_conn
+
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
+        DELETE FROM evidence WHERE id = %s AND org_id = %s
+    """, (evidence_id, org_id))
+    deleted = cur.rowcount > 0
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    if not deleted:
+        return JSONResponse(status_code=404, content={"error": "Evidence not found or not authorized"})
+
+    return {"message": "Evidence deleted"}
 
 
 @router.get("/audit")

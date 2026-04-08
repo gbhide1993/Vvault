@@ -103,6 +103,22 @@ VALUES ('admin', 'admin')
 ON CONFLICT (username) DO NOTHING;
 
 -- =========================
+-- Evidence
+-- =========================
+CREATE TABLE IF NOT EXISTS evidence (
+    id SERIAL PRIMARY KEY,
+    cache_id INT REFERENCES qa_cache(id) ON DELETE CASCADE,
+    org_id TEXT,
+    evidence_type TEXT DEFAULT 'note',
+    content TEXT,
+    filename TEXT,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+ALTER TABLE evidence ADD COLUMN IF NOT EXISTS org_id TEXT;
+
+-- =========================
 -- Audit Logs
 -- =========================
 CREATE TABLE IF NOT EXISTS audit_logs (
