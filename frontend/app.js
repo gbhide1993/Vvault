@@ -107,7 +107,7 @@ function getConfidenceMeta(confidence) {
   return {
     label: "Low",
     class: "red",
-    warning: "⚠️ Needs review"
+    warning: "Needs review"
   };
 }
 
@@ -843,14 +843,17 @@ async function loadPreview() {
         : "No relevant information available."
         }
         ${item.source === "llm" ? `
-            <div style="margin-top:6px;">
-                <span 
-                    onclick="toggleExplanation(${item.id})" 
-                    style="cursor:pointer; font-size:14px; margin-left:6px;" 
-                    title="Why this answer?"
-                >
-                Note
-                </span>
+          <div style="margin-top:6px;">
+              <span 
+                  onclick="toggleExplanation(${item.id})" 
+                  style="cursor:pointer; font-size:11px; font-weight:500;
+                        background:#e8f4e8; color:#2d6a2d; padding:2px 8px;
+                        border-radius:10px; display:inline-block;
+                        border:1px solid #c3e0c3; margin-top:4px;"
+                  title="Click to see source context"
+              >
+              + Why this answer?
+              </span>
                 <div id="exp-${item.id}" style="display:none; font-size:12px; color:#444; margin-top:4px;">
                 ${generateExplanation(item)}
                 </div>

@@ -48,17 +48,14 @@ def get_pending(request: Request, limit: int = 50):
 # ----------------------------------
 # 2. APPROVE SINGLE
 # ----------------------------------
+from fastapi.responses import JSONResponse   # add to top-of-file imports
+
 @router.post("/approve/{cache_id}")
 def approve(cache_id: int, request: Request):
     if request.state.role != "admin":
-        from fastapi.responses import JSONResponse
         return JSONResponse(status_code=403, content={"error": "Not authorized"})
 
-    from app.services.cache_db import get_record_by_id
-    from app.services.audit_service import log_action
-
     record = get_record_by_id(cache_id)
-
     update_status(cache_id, "approved")
 
     if record:
@@ -70,8 +67,7 @@ def approve(cache_id: int, request: Request):
             run_id=record.get("run_id")
         )
 
-    return JSONResponse(status_code=200, content={"message": f"Cache ID {cache_id} approved"})
-
+    return {"message": f"Cache ID {cache_id} approved"}
 
 # ----------------------------------
 # 3. REJECT SINGLE
