@@ -102,7 +102,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
         dropdown_map = {}
         for sheet_name, data in sheet_data.items():
             df = data["df"]
-            dropdown_map[sheet_name] = detect_dropdown_columns(df)
+            dropdown_map[sheet_name] = detect_dropdown_columns(df) if df is not None else {}
 
         print("Dropdown map:", dropdown_map)
 

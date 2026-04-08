@@ -190,18 +190,15 @@ td, th {
   vertical-align: top;
 }
 
-#previewTable th:first-child,
-#previewTable td:first-child {
-  width: 40px;
-  text-align: center;
-}
-
-#previewTable th:nth-child(2) { width: 25%; }
-#previewTable th:nth-child(3) { width: 35%; }
-#previewTable th:nth-child(4) { width: 8%; }
-#previewTable th:nth-child(5) { width: 8%; }
-#previewTable th:nth-child(6) { width: 8%; }
-#previewTable th:nth-child(7) { width: 8%; }
+#previewTable th:nth-child(1),
+#previewTable td:nth-child(1) { width: 36px; text-align: center; }
+#previewTable th:nth-child(2) { width: 22%; }
+#previewTable th:nth-child(3) { width: 32%; }
+#previewTable th:nth-child(4) { width: 11%; }
+#previewTable th:nth-child(5) { width: 9%; }
+#previewTable th:nth-child(6) { width: 9%; }
+#previewTable th:nth-child(7),
+#previewTable td:nth-child(7) { width: 90px; white-space: nowrap; }
 
 .question-cell {
   font-size: 12px;
