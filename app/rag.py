@@ -366,9 +366,9 @@ async def upload_questionnaire(request: Request, file: UploadFile = File(...)):
     run_id = str(uuid.uuid4())
 
     fname = file.filename.lower()
-    if not (fname.endswith(".xlsx") or fname.endswith(".docx") or fname.endswith(".pdf")):
-        raise HTTPException(status_code=400, detail="Only .xlsx, .docx or .pdf files supported")
-
+    allowed = (".xlsx", ".docx", ".pdf")
+    if not file.filename.lower().endswith(allowed):
+        raise HTTPException(status_code=400, detail="Only .xlsx, .docx, or .pdf files supported")
     contents = await file.read()
 
     if fname.endswith(".docx"):

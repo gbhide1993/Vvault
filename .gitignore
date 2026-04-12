@@ -28,3 +28,9 @@ certs/
 backups/
 
 *.vvault-license
+docker-compose.customer.yml
+install-ghcr.bat
+install-ghcr.sh
+start-vvault.bat
+stop-vvault.bat
+update-vvault.bat
