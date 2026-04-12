@@ -23,7 +23,7 @@ VERSION=${1:-""}
 
 # Dockerfiles
 BACKEND_DOCKERFILE="Dockerfile.backend.prod"
-FRONTEND_DOCKERFILE="Dockerfile.frontend.prod"
+FRONTEND_DOCKERFILE="frontend/Dockerfile"
 
 # Colors
 GREEN='\033[0;92m'
@@ -64,8 +64,8 @@ if [ ! -f "$BACKEND_DOCKERFILE" ]; then
 fi
 echo -e "${GREEN}  ✓ Backend Dockerfile found${RESET}"
 
-if [ ! -f "frontend/$FRONTEND_DOCKERFILE" ]; then
-    echo -e "${RED}  ✗ frontend/$FRONTEND_DOCKERFILE not found.${RESET}"
+if [ ! -f "$FRONTEND_DOCKERFILE" ]; then
+    echo -e "${RED}  ✗ $FRONTEND_DOCKERFILE not found.${RESET}"
     exit 1
 fi
 echo -e "${GREEN}  ✓ Frontend Dockerfile found${RESET}"
@@ -110,7 +110,7 @@ echo ""
 if [ -n "$VERSION" ]; then
     docker build \
         --platform linux/amd64 \
-        -f "frontend/$FRONTEND_DOCKERFILE" \
+        -f "$FRONTEND_DOCKERFILE" \
         -t "${FRONTEND_IMAGE}:latest" \
         -t "${FRONTEND_IMAGE}:${VERSION}" \
         --label "org.opencontainers.image.source=https://github.com/${GITHUB_USER}/vvault" \
@@ -121,7 +121,7 @@ if [ -n "$VERSION" ]; then
 else
     docker build \
         --platform linux/amd64 \
-        -f "frontend/$FRONTEND_DOCKERFILE" \
+        -f "$FRONTEND_DOCKERFILE" \
         -t "${FRONTEND_IMAGE}:latest" \
         --label "org.opencontainers.image.source=https://github.com/${GITHUB_USER}/vvault" \
         --label "org.opencontainers.image.description=Vvault Frontend" \
