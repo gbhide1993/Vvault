@@ -737,7 +737,7 @@ async function loadPreview() {
           <button id="evBtn-${item.id}" onclick="openEvidenceModal(${item.id})"
             style="font-size:11px;padding:3px 8px;">+ Evidence</button>
         </td>
-      \`;
+      `;
       loadEvidenceCount(item.id);
 
       tbody.appendChild(row);
