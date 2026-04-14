@@ -1201,12 +1201,14 @@ async function bulkApprove() {
     alert("Only admin can approve");
     return;
   }
+  
   await Promise.all([...selectedIds].map(id =>
     fetch(`${BASE_URL}/cache/approve/${id}`, {
       method: "POST",
       headers: authHeaders(),
     })
   ));
+  
   selectedIds.clear();
   loadPreview();
   loadAuditLogs();
@@ -1217,18 +1219,18 @@ async function bulkReject() {
     alert("Only admin can reject");
     return;
   }
+  
   await Promise.all([...selectedIds].map(id =>
     fetch(`${BASE_URL}/cache/reject/${id}`, {
       method: "POST",
       headers: authHeaders(),
     })
   ));
+  
   selectedIds.clear();
   loadPreview();
   loadAuditLogs();
 }
-
-
 // ---------- DOWNLOAD ----------
 function downloadFinal() {
   if (!finalFileBlob) {
