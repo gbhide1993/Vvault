@@ -662,7 +662,15 @@ async function runAutofill() {
   if (isProcessing) return;
 
   const file = document.getElementById("excelFile").files[0];
-  if (!file) return alert("Upload questionnaire first");
+  if (!file) return alert("Please select a questionnaire file first.");
+
+  // Validate file type
+  const allowed = [".xlsx", ".docx", ".pdf"];
+  const ext = "." + file.name.split(".").pop().toLowerCase();
+  if (!allowed.includes(ext)) {
+    alert("Unsupported file type: " + ext + "\n\nSupported formats: Excel (.xlsx), Word (.docx), PDF (.pdf)");
+    return;
+  }
 
   isProcessing = true;
   toggleButtons(true);
@@ -680,7 +688,10 @@ async function runAutofill() {
       body: formData,
     });
 
-    if (!res.ok) throw new Error("Processing failed");
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || "Processing failed");
+    }
 
     const data = await res.json();
     currentRunId = data.run_id;
@@ -770,7 +781,12 @@ async function pollJobStatus(run_id, total, interval) {
       document.getElementById("progressText").innerText = "Completed";
       setStep("step-processing", "done");
       setStep("step-complete", "done");
-      if (progressContainer) progressContainer.style.display = "none";
+
+      // Hide progress bar but keep source breakdown visible
+      const bar = document.getElementById("autofillProgressBar");
+      if (bar) bar.parentElement.style.display = "none";
+      if (progressContainer) progressContainer.style.display = "block";
+
       toggleButtons(false);
       isProcessing = false;
       await loadPreview();
