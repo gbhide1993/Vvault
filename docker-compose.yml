@@ -19,13 +19,17 @@ services:
       retries: 10
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.prod
     container_name: vvault_backend
     depends_on:
       db:
         condition: service_healthy
+      ollama:
+        condition: service_healthy
     env_file:
-      - .env  
+      - .env
     environment:
       DB_HOST: db
       DB_NAME: vvault
@@ -37,25 +41,38 @@ services:
     volumes:
       # Place your .vvault-license file in this folder before running
       - .:/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
 
   frontend:
-      build: ./frontend
-      ports:
-        - "3000:80"
-        - "3443:443"
-      depends_on:
-        - backend
-      volumes:
-        - ./certs:/etc/nginx/certs:ro
-
+    build: ./frontend
+    ports:
+      - "3000:80"
+      - "3443:443"
+    depends_on:
+      backend:
+        condition: service_healthy
+    volumes:
+      - ./certs:/etc/nginx/certs:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sk https://localhost/health || curl -sk http://localhost/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   ollama:
     image: ollama/ollama
     container_name: vvault_ollama
     ports:
-      - "11434:11434"
+      # Bound to localhost only — Ollama is internal, not intended for external access
+      - "127.0.0.1:11434:11434"
     volumes:
-      - ollama_data:/root/.ollama    
+      - ollama_data:/root/.ollama
     entrypoint: >
       sh -c "
       ollama serve &
@@ -64,6 +81,12 @@ services:
       ollama pull nomic-embed-text &&
       wait
       "
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:11434/ || exit 1"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 60s
 
 volumes:
   pgdata:
