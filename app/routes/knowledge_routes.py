@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
 from app.services.knowledge_service import (
@@ -7,6 +9,7 @@ from app.services.knowledge_service import (
 )
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
+logger = logging.getLogger(__name__)
 
 
 # -----------------------------
@@ -20,6 +23,9 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="Invalid file")
 
     content = await file.read()
+
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum allowed size is 50 MB.")
 
     if file.filename.lower().endswith(".pdf"):
         text = extract_text_from_pdf(content)
@@ -55,7 +61,7 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...)):
     }
 
 def get_uploaded_sources():
-    from app.services.cache_db import get_conn  # reuse existing connection
+    from app.services.cache_db import get_conn
 
     try:
         conn = get_conn()
@@ -75,7 +81,7 @@ def get_uploaded_sources():
         return [r[0] for r in rows]
 
     except Exception as e:
-        print("❌ get_uploaded_sources error:", str(e))
+        logger.error("get_uploaded_sources failed: %s", e)
         return []
 
 
@@ -85,13 +91,12 @@ def get_sources(request: Request):
         from app.services.knowledge_service import get_uploaded_sources
         return get_uploaded_sources(org_id=request.state.username)
     except Exception as e:
-        print("❌ /sources error:", str(e))
+        logger.error("/knowledge/sources failed: %s", e)
         return {"error": str(e)}
+
 # -----------------------------
 # HEALTH CHECK
 # -----------------------------
 @router.get("/health")
 def health():
     return {"status": "knowledge service running"}
-
-
