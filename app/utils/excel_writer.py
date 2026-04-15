@@ -5,7 +5,7 @@ from openpyxl import load_workbook
 import io
 
 
-# 🎨 Colors
+# Colors
 GREEN = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 YELLOW = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
 RED = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
@@ -19,7 +19,7 @@ def write_answers(sheet_data, answers, rows):
         for sheet_name, data in sheet_data.items():
             df = data["df"]
 
-            # 🔥 Handle Word/PDF input where df is None
+            # Handle Word/PDF input where df is None
             if df is None:
                 rows_data = []
                 for row in rows:
@@ -48,7 +48,7 @@ def write_answers(sheet_data, answers, rows):
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
                 continue
 
-            # 🔍 Find answer column (existing Excel logic)
+            # Find answer column (existing Excel logic)
             answer_col = None
             for col in df.columns:
                 if col.lower() in ["answer", "response", "status"]:
@@ -108,7 +108,7 @@ def write_answers(sheet_data, answers, rows):
             answer_col_idx = headers.index(
                 next(h for h in headers if str(h).lower() in ["answer", "response", "status"])
             ) + 1
-        except:
+        except (StopIteration, ValueError):
             continue
 
         if "Confidence" not in headers:
@@ -131,7 +131,7 @@ def write_answers(sheet_data, answers, rows):
                 else:
                     fill = RED
                 ws.cell(row=row, column=answer_col_idx).fill = fill
-            except:
+            except (TypeError, ValueError):
                 continue
 
     final_output = io.BytesIO()
