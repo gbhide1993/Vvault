@@ -39,6 +39,16 @@ let showLowOnly = false;
 let currentPage = 1;
 const pageSize = 10;
 
+function escapeHtml(str) {
+  if (!str) return "";
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function generateExplanation(item) {
   if (!item.source_text) return "No supporting context available.";
 
@@ -48,7 +58,7 @@ function generateExplanation(item) {
     text = text.substring(0, 150) + "...";
   }
 
-  return "This answer is based on the following context: " + text;
+  return "This answer is based on the following context: " + escapeHtml(text);
 }
 
 function toggleExplanation(id) {
@@ -65,7 +75,7 @@ function toggleExplanation(id) {
 
 function toggleLowConfidence() {
   showLowOnly = !showLowOnly;
-  currentPage = 1; // Reset to first page when toggling 
+  currentPage = 1;
 
   const btn = document.getElementById("lowFilterBtn");
   btn.innerText = showLowOnly ? "Show All" : "Show Low Confidence";
@@ -76,41 +86,26 @@ function toggleLowConfidence() {
 function formatSource(text) {
   if (!text) return "";
 
-  // clean whitespace
   text = text.replace(/\s+/g, " ").trim();
 
-  // limit length (important)
   if (text.length > 120) {
     text = text.substring(0, 120) + "...";
   }
 
-  return "Source: " + text;
+  return "Source: " + escapeHtml(text);
 }
 
 function getConfidenceMeta(confidence) {
   if (confidence >= 80) {
-    return {
-      label: "High",
-      class: "green",
-      warning: ""
-    };
+    return { label: "High", class: "green", warning: "" };
   }
 
   if (confidence >= 60) {
-    return {
-      label: "Medium",
-      class: "orange",
-      warning: ""
-    };
+    return { label: "Medium", class: "orange", warning: "" };
   }
 
-  return {
-    label: "Low",
-    class: "red",
-    warning: "Needs review"
-  };
+  return { label: "Low", class: "red", warning: "Needs review" };
 }
-
 
 function getCurrentUser() {
   return localStorage.getItem("user") || localStorage.getItem("username") || "";
@@ -215,7 +210,6 @@ async function login() {
 
     if (data.requires_setup) {
       document.getElementById("setup-container").style.display = "block";
-      // STOP HERE — do not load any app data until setup is complete
     } else {
       showApp();
     }
@@ -257,7 +251,6 @@ function showApp() {
   loadUsers();
   loadAuditLogs();
 
-  // Call these only if the functions exist (added in later sprints)
   if (typeof loadRuns === "function") loadRuns();
   if (typeof loadLibrary === "function") loadLibrary();
   if (typeof restoreLastSession === "function") restoreLastSession();
@@ -381,9 +374,9 @@ async function loadLibrary() {
     items.forEach(item => {
       const row = document.createElement("tr");
       row.innerHTML = `
-        <td class="question-cell">${item.question || "-"}</td>
-        <td>${item.answer || "-"}</td>
-        <td>${item.source || "-"}</td>
+        <td class="question-cell">${escapeHtml(item.question) || "-"}</td>
+        <td>${escapeHtml(item.answer) || "-"}</td>
+        <td>${escapeHtml(item.source) || "-"}</td>
         <td><button onclick="deleteLibraryItem(${item.id})">Delete</button></td>
       `;
       tbody.appendChild(row);
@@ -451,7 +444,7 @@ async function restoreLastSession() {
       isProcessing = true;
       toggleButtons(true);
 
-     let pollInterval;
+      let pollInterval;
       pollInterval = setInterval(
         () => pollJobStatus(lastRunId, job.total, pollInterval),
         3000
@@ -505,12 +498,12 @@ async function loadUsers() {
       const row = document.createElement("tr");
 
       row.innerHTML = `
-        <td>${u.username}</td>
-        <td>${u.role}</td>
+        <td>${escapeHtml(u.username)}</td>
+        <td>${escapeHtml(u.role)}</td>
         <td>
           ${
             u.username !== "admin"
-              ? `<button onclick="deleteUser('${u.username}')">Delete</button>`
+              ? `<button onclick="deleteUser('${escapeHtml(u.username)}')">Delete</button>`
               : ""
           }
         </td>
@@ -585,9 +578,9 @@ async function loadAuditLogs() {
       const row = document.createElement("tr");
 
       row.innerHTML = `
-        <td>${log.user_name}</td>
-        <td>${log.action}</td>
-        <td>${log.question}</td>
+        <td>${escapeHtml(log.user_name)}</td>
+        <td>${escapeHtml(log.action)}</td>
+        <td>${escapeHtml(log.question)}</td>
         <td>${new Date(log.created_at).toLocaleString()}</td>
       `;
 
@@ -637,7 +630,7 @@ async function loadKnowledgeFiles() {
       return;
     }
 
-    container.innerHTML = files.map(f => `- ${f}`).join("<br>");
+    container.innerHTML = files.map(f => `- ${escapeHtml(f)}`).join("<br>");
 
   } catch (err) {
     console.error("Error loading knowledge files", err);
@@ -666,7 +659,7 @@ async function uploadKnowledge() {
 
     if (!res.ok) {
       const err = await res.json();
-      document.getElementById("knowledgeStatus").innerText = 
+      document.getElementById("knowledgeStatus").innerText =
         err.detail || "Upload failed";
       document.getElementById("knowledgeStatus").style.color = "red";
       document.getElementById("progressText").innerText = "Upload failed";
@@ -848,11 +841,10 @@ async function loadPreview() {
     const tbody = document.querySelector("#previewTable tbody");
     tbody.innerHTML = "";
 
-    const filteredData = showLowOnly 
-    ? data.filter(d => d.confidence < 70)
-    : data;
+    const filteredData = showLowOnly
+      ? data.filter(d => d.confidence < 70)
+      : data;
 
-    // Pagination logic
     const totalPages = Math.ceil(filteredData.length / pageSize);
     if (currentPage > totalPages) currentPage = totalPages || 1;
 
@@ -870,16 +862,16 @@ async function loadPreview() {
         <td>
           <input type="checkbox" onchange="toggleSelect(${item.id})" />
         </td>
-        <td class="question-cell">${item.question || "-"}</td>
+        <td class="question-cell">${escapeHtml(item.question) || "-"}</td>
         <td>
-        ${(item.answer && !item.answer.toLowerCase().includes("error generating")) 
-        ? item.answer 
+        ${(item.answer && !item.answer.toLowerCase().includes("error generating"))
+        ? escapeHtml(item.answer)
         : "No relevant information available."
         }
         ${item.source === "llm" ? `
           <div style="margin-top:6px;">
-              <span 
-                  onclick="toggleExplanation(${item.id})" 
+              <span
+                  onclick="toggleExplanation(${item.id})"
                   style="cursor:pointer; font-size:11px; font-weight:500;
                         background:#e8f4e8; color:#2d6a2d; padding:2px 8px;
                         border-radius:10px; display:inline-block;
@@ -894,8 +886,8 @@ async function loadPreview() {
             </div>
             ` : ""}
         <div style="font-size:12px; color:#666; margin-top:4px;">
-            ${(item.source_text && item.confidence < 80) 
-            ? formatSource(item.source_text) 
+            ${(item.source_text && item.confidence < 80)
+            ? formatSource(item.source_text)
             : ""}
         </div>
         </td>
@@ -907,10 +899,10 @@ async function loadPreview() {
                 ${meta.warning ? `<div style="color:red; font-size:11px;">${meta.warning}</div>` : ""}
             </div>
             </td>
-        <td>${item.source || "-"}</td>
+        <td>${escapeHtml(item.source) || "-"}</td>
         <td>
           <span class="status ${item.status || "pending"}">
-            ${item.status || "pending"}
+            ${escapeHtml(item.status) || "pending"}
           </span>
         </td>
         <td>
@@ -1014,23 +1006,23 @@ async function loadEvidenceList(cacheId) {
     const items = await res.json();
 
     if (!Array.isArray(items) || items.length === 0) {
-      listEl.innerHTML = `<div style="color:#999; font-size:12px; 
+      listEl.innerHTML = `<div style="color:#999; font-size:12px;
         font-style:italic;">No evidence attached yet.</div>`;
       return;
     }
 
     listEl.innerHTML = items.map(item => `
       <div class="evidence-item">
-        <span class="evidence-type-badge">${item.evidence_type}</span>
+        <span class="evidence-type-badge">${escapeHtml(item.evidence_type)}</span>
         <div class="evidence-content">
-          <div>${item.content || ""}</div>
-          ${item.filename ? `<div style="font-size:11px; color:#888; 
-            margin-top:2px;">Document: ${item.filename}</div>` : ""}
-          <div class="evidence-meta">Added by ${item.created_by} 
+          <div>${escapeHtml(item.content) || ""}</div>
+          ${item.filename ? `<div style="font-size:11px; color:#888;
+            margin-top:2px;">Document: ${escapeHtml(item.filename)}</div>` : ""}
+          <div class="evidence-meta">Added by ${escapeHtml(item.created_by)}
             on ${new Date(item.created_at).toLocaleDateString()}</div>
         </div>
         <button onclick="deleteEvidence(${item.id}, ${cacheId})"
-          style="font-size:11px; padding:2px 8px; color:#c00; 
+          style="font-size:11px; padding:2px 8px; color:#c00;
                  background:white; border:1px solid #fcc; border-radius:4px;
                  cursor:pointer; white-space:nowrap;">
           Delete
@@ -1117,7 +1109,6 @@ async function deleteEvidence(evidenceId, cacheId) {
 }
 
 
-
 // ---------- SEARCH ----------
 function filterTable() {
   const input = document.getElementById("searchInput").value.toLowerCase();
@@ -1138,7 +1129,7 @@ function toggleSelect(id) {
 
 function toggleAll(master) {
   const checkboxes = document.querySelectorAll("#previewTable tbody input[type='checkbox']");
-  
+
   checkboxes.forEach(cb => {
     cb.checked = master.checked;
 
@@ -1156,14 +1147,14 @@ async function bulkApprove() {
     alert("Only admin can approve");
     return;
   }
-  
+
   await Promise.all([...selectedIds].map(id =>
     fetch(`${BASE_URL}/cache/approve/${id}`, {
       method: "POST",
       headers: authHeaders(),
     })
   ));
-  
+
   selectedIds.clear();
   loadPreview();
   loadAuditLogs();
@@ -1174,14 +1165,14 @@ async function bulkReject() {
     alert("Only admin can reject");
     return;
   }
-  
+
   await Promise.all([...selectedIds].map(id =>
     fetch(`${BASE_URL}/cache/reject/${id}`, {
       method: "POST",
       headers: authHeaders(),
     })
   ));
-  
+
   selectedIds.clear();
   loadPreview();
   loadAuditLogs();
@@ -1198,7 +1189,6 @@ function downloadFinal() {
     if (el) {
       el.innerText = msg;
       el.style.color = "orange";
-      // Scroll to status section so user sees it
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     } else {
       alert(msg);
