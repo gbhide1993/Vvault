@@ -10,10 +10,13 @@ Zero network calls. Fully offline. Air-gapped.
 
 import json
 import base64
+import logging
 import os
 import glob
 from datetime import datetime
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
@@ -68,12 +71,12 @@ def find_license_file() -> Optional[str]:
         os.path.expanduser("~/vvault/*.vvault-license"),
         os.path.expanduser("~/*.vvault-license"),
     ]
-    
+
     for pattern in search_paths:
         matches = glob.glob(pattern)
         if matches:
             return matches[0]
-    
+
     return None
 
 
@@ -82,30 +85,30 @@ def parse_license_file(filepath: str) -> Optional[dict]:
     try:
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
-        
+
         begin_marker = '-----BEGIN VVAULT LICENSE-----'
         end_marker = '-----END VVAULT LICENSE-----'
-        
+
         start = content.find(begin_marker)
         end = content.find(end_marker)
-        
+
         if start == -1 or end == -1:
             return None
-        
+
         json_content = content[start + len(begin_marker):end].strip()
-        
+
         # Find just the JSON object
         json_start = json_content.find('{')
         json_end = json_content.rfind('}') + 1
-        
+
         if json_start == -1 or json_end == 0:
             return None
-        
+
         json_only = json_content[json_start:json_end]
         return json.loads(json_only)
-    
+
     except Exception as e:
-        print(f"License parse error: {e}")
+        logger.warning("License parse error: %s", e)
         return None
 
 
@@ -117,15 +120,15 @@ def verify_signature(license_data: dict) -> Optional[dict]:
     try:
         payload_b64 = license_data.get("payload", "")
         signature_b64 = license_data.get("signature", "")
-        
+
         if not payload_b64 or not signature_b64:
             return None
-        
+
         payload_bytes = base64.b64decode(payload_b64)
         signature = base64.b64decode(signature_b64)
-        
+
         public_key = load_public_key()
-        
+
         # Verify signature
         public_key.verify(
             signature,
@@ -136,10 +139,10 @@ def verify_signature(license_data: dict) -> Optional[dict]:
             ),
             hashes.SHA256()
         )
-        
+
         # Signature valid — decode payload
         return json.loads(payload_bytes.decode('utf-8'))
-    
+
     except InvalidSignature:
         return None
     except Exception:
@@ -153,39 +156,39 @@ def validate_license() -> dict:
     Returns license status dict.
     """
     global _license_status
-    
+
     _license_status["checked_at"] = datetime.utcnow().isoformat()
-    
+
     # Step 1: Find license file
     license_path = find_license_file()
-    
+
     if not license_path:
         _license_status.update({
             "valid":  False,
             "reason": "no_license_file",
         })
         return _license_status
-    
+
     # Step 2: Parse license file
     license_data = parse_license_file(license_path)
-    
+
     if not license_data:
         _license_status.update({
             "valid":  False,
             "reason": "invalid_license_format",
         })
         return _license_status
-    
+
     # Step 3: Verify cryptographic signature
     payload = verify_signature(license_data)
-    
+
     if not payload:
         _license_status.update({
             "valid":  False,
             "reason": "invalid_signature",
         })
         return _license_status
-    
+
     # Step 4: Check product
     if payload.get("product") != "vvault":
         _license_status.update({
@@ -193,13 +196,13 @@ def validate_license() -> dict:
             "reason": "wrong_product",
         })
         return _license_status
-    
+
     # Step 5: Check expiry
     try:
         expires = datetime.strptime(payload["expires_at"], "%Y-%m-%d")
         now = datetime.utcnow()
         days_remaining = (expires - now).days
-        
+
         if now > expires:
             _license_status.update({
                 "valid":        False,
@@ -210,14 +213,14 @@ def validate_license() -> dict:
                 "days_remaining": 0
             })
             return _license_status
-    
+
     except Exception:
         _license_status.update({
             "valid":  False,
             "reason": "invalid_expiry_date",
         })
         return _license_status
-    
+
     # All checks passed
     _license_status.update({
         "valid":          True,
@@ -230,11 +233,11 @@ def validate_license() -> dict:
         "max_users":      payload.get("max_users", 999),
         "license_path":   license_path
     })
-    
+
     # Warning if expiring soon
     if days_remaining <= 30:
         _license_status["reason"] = "expiring_soon"
-    
+
     return _license_status
 
 
@@ -254,10 +257,10 @@ def get_expiry_message() -> Optional[str]:
     None if everything is fine.
     """
     status = _license_status
-    
+
     if not status["valid"]:
         reason = status.get("reason", "unknown")
-        
+
         if reason == "no_license_file":
             return (
                 "No license file found. "
@@ -279,12 +282,12 @@ def get_expiry_message() -> Optional[str]:
                 f"License validation failed ({reason}). "
                 "Please contact support@getvvault.com."
             )
-    
+
     if status.get("reason") == "expiring_soon":
         days = status.get("days_remaining", 0)
         return (
             f"Your Vvault license expires in {days} days. "
             f"Please renew at getvvault.com to avoid interruption."
         )
-    
+
     return None
