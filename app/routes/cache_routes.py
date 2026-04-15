@@ -140,7 +140,7 @@ def get_approved(request: Request, limit: int = 50):
     }
 
 # ----------------------------------
-# 5. GET ALL (ENRICHED)
+# 6. GET ALL (ENRICHED)
 # ----------------------------------
 
 
@@ -178,7 +178,6 @@ def get_all_cache(request: Request, run_id: str = None):
     for row in rows:
         item = dict(zip(columns, row))
 
-        # 🔥 ensure defaults
         if not item.get("status"):
             item["status"] = "pending"
 
@@ -193,7 +192,7 @@ def get_all_cache(request: Request, run_id: str = None):
     return result
 
 # ----------------------------------
-# USER MANAGEMENT 
+# USER MANAGEMENT
 # ----------------------------------
 
 
@@ -323,7 +322,6 @@ def add_manual_entry(request: Request, body: dict):
         org_id=org_id,
     )
 
-    # Fetch the inserted id
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT id FROM qa_cache WHERE question_hash = %s AND org_id = %s ORDER BY id DESC LIMIT 1", (q_hash, org_id))
@@ -437,6 +435,57 @@ def download_job_result(run_id: str):
     )
 
 
+@router.post("/upload/cancel/{run_id}")
+def cancel_job(run_id: str):
+    from app.services.job_service import fail_job, get_job
+    job = get_job(run_id)
+    if job and job["status"] in ("processing", "queued"):
+        fail_job(run_id, "Cancelled by user")
+    return {"message": "Job cancelled"}
+
+
+# ----------------------------------
+# GDPR: EXPORT ALL USER DATA
+# ----------------------------------
+@router.get("/export")
+def export_user_data(request: Request):
+    from app.services.cache_db import get_conn
+    from psycopg2.extras import RealDictCursor
+
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute(
+        "SELECT id, question, answer, confidence, source, status, created_at, updated_at "
+        "FROM qa_cache WHERE org_id = %s ORDER BY created_at",
+        (org_id,)
+    )
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return JSONResponse(content={"org_id": org_id, "record_count": len(rows), "records": [dict(r) for r in rows]})
+
+
+# ----------------------------------
+# GDPR: PURGE ALL USER DATA (admin only)
+# ----------------------------------
+@router.delete("/purge")
+def purge_user_data(request: Request):
+    if request.state.role != "admin":
+        return JSONResponse(status_code=403, content={"error": "Not authorized"})
+
+    from app.services.cache_db import get_conn
+    org_id = request.state.username
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM qa_cache WHERE org_id = %s", (org_id,))
+    count = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return {"message": f"{count} records purged for org '{org_id}'"}
+
+
 @router.post("/evidence/{cache_id}")
 def add_evidence(cache_id: int, request: Request, body: dict):
     from app.services.cache_db import get_conn
@@ -531,67 +580,3 @@ def get_audit_logs(limit: int = 50):
     conn.close()
 
     return results
-
-# ----------------------------------
-# EVIDENCE ROUTES
-# ----------------------------------
-
-@router.post("/evidence/{cache_id}")
-def add_evidence(cache_id: int, body: dict, request: Request):
-    from app.services.cache_db import get_conn
-    conn = get_conn()
-    cur = conn.cursor()
-    org_id = request.state.username
-    cur.execute("""
-        INSERT INTO evidence (cache_id, org_id, evidence_type, content, filename, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-    """, (
-        cache_id, org_id,
-        body.get("evidence_type", "note"),
-        body.get("content", ""),
-        body.get("filename", ""),
-        request.state.username
-    ))
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"id": new_id, "message": "Evidence added"}
-
-
-@router.get("/evidence/{cache_id}")
-def get_evidence(cache_id: int, request: Request):
-    from app.services.cache_db import get_conn
-    from psycopg2.extras import RealDictCursor
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    org_id = request.state.username
-    cur.execute("""
-        SELECT id, cache_id, evidence_type, content, filename, created_by, created_at
-        FROM evidence
-        WHERE cache_id = %s AND org_id = %s
-        ORDER BY created_at DESC
-    """, (cache_id, org_id))
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
-
-
-@router.delete("/evidence/{evidence_id}")
-def delete_evidence(evidence_id: int, request: Request):
-    from app.services.cache_db import get_conn
-    conn = get_conn()
-    cur = conn.cursor()
-    org_id = request.state.username
-    cur.execute("""
-        DELETE FROM evidence WHERE id = %s AND org_id = %s
-    """, (evidence_id, org_id))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    conn.close()
-    if not deleted:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=404, content={"error": "Not found"})
-    return {"message": f"Evidence {evidence_id} deleted"}
