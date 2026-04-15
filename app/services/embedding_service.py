@@ -28,7 +28,7 @@ def generate_embedding(text):
                 data = response.json()
                 if "embedding" in data:
                     return data["embedding"]
-            except:
+            except (json.JSONDecodeError, ValueError, KeyError):
                 pass
 
             # Fallback: handle multi-line JSON
@@ -39,7 +39,7 @@ def generate_embedding(text):
                     data = json.loads(line)
                     if "embedding" in data:
                         return data["embedding"]
-                except:
+                except (json.JSONDecodeError, ValueError):
                     continue
 
         except Exception as e:
