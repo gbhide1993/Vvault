@@ -173,7 +173,6 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                         logger.error("retrieve_top_k failed: %s", _e)
                         rag_context = ""
 
-                    # 👇 NEW: Evidence collection
                     evidence = []
 
                     if kb_context:
@@ -236,7 +235,6 @@ Answer:
                             or len(llm_answer.strip()) < 20
                         )
 
-                        # 🔥 CORE FIX: ALWAYS USE CONTEXT IF AVAILABLE
                         if context.strip():
                             if is_bad:
                                 logger.debug("Using context instead of weak LLM output")
@@ -266,7 +264,8 @@ Answer:
                             evidence=evidence
                         )
 
-                    except Exception:
+                    except Exception as e:
+                        logger.error("LLM generation failed for question '%s': %s", question, e)
                         answer_obj = AnswerMetadata(
                             answer="Security controls are implemented based on organizational policies and best practices.",
                             confidence=0.3,
@@ -312,19 +311,11 @@ Answer:
                 "answer": final_answer,
                 "confidence": int(answer_obj.confidence * 100),
                 "source": answer_obj.source,
-
-                # 🔥 CLEAN UX
                 "justification": getattr(answer_obj, "justification", ""),
                 "matched_question": getattr(answer_obj, "matched_question", None),
-
-                # 🔥 EVIDENCE (SAFE FALLBACKS)
                 "evidence": getattr(answer_obj, "evidence", ""),
                 "raw_context": locals().get("context", ""),
-
-                # 🔥 TRACEABILITY (for Phase 2 ready)
                 "documents": locals().get("kb_sources", []),
-
-                # 🔥 KEEP OLD (don't break anything)
                 "source_text": source_text,
             }
 
@@ -370,6 +361,9 @@ async def upload_questionnaire(request: Request, file: UploadFile = File(...)):
     if not file.filename.lower().endswith(allowed):
         raise HTTPException(status_code=400, detail="Only .xlsx, .docx, or .pdf files supported")
     contents = await file.read()
+
+    if len(contents) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large. Maximum allowed size is 50 MB.")
 
     if fname.endswith(".docx"):
         rows = parse_docx_questionnaire(contents)
