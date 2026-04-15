@@ -1,7 +1,11 @@
-from app.services.cache_db import fetch_similar, insert_cache
-from app.services.embedding_service import generate_embedding
+import logging
 import os
 import hashlib
+
+from app.services.cache_db import fetch_similar, insert_cache
+from app.services.embedding_service import generate_embedding
+
+logger = logging.getLogger(__name__)
 
 THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", 0.85))
 
@@ -15,21 +19,21 @@ def get_hash(text):
 def get_cached_answer(question: str, org_id=None):
     q = (org_id, question.lower())
 
-    # ⚡ 1. In-memory cache
+    # 1. In-memory cache
     if q in CACHE:
-        print("⚡ In-memory cache hit")
+        logger.debug("Cache hit from in-memory store")
         return CACHE[q]
 
-    # 🧠 2. DB semantic cache
+    # 2. DB semantic cache
     embedding = generate_embedding(question)
     result = fetch_similar(embedding, threshold=THRESHOLD, org_id=org_id)
 
     if result:
-        print("⚡ DB cache hit")
+        logger.debug("Cache hit from database")
 
-        # 🔥 ONLY APPROVED
+        # ONLY APPROVED entries are returned
         if result.get("status") != "approved":
-            print("⛔ Skipping non-approved cache")
+            logger.debug("Skipping non-approved cache entry (status=%s)", result.get("status"))
             return None
 
         cache_obj = {
@@ -85,5 +89,3 @@ def set_cached_answer(question: str, data, org_id=None):
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
     )
-
-
