@@ -251,6 +251,7 @@ function showApp() {
   }
 
   updateUserProfile();
+  checkLicenseStatus();
 
   loadKnowledgeFiles();
   loadUsers();
@@ -260,6 +261,39 @@ function showApp() {
   if (typeof loadRuns === "function") loadRuns();
   if (typeof loadLibrary === "function") loadLibrary();
   if (typeof restoreLastSession === "function") restoreLastSession();
+}
+
+async function checkLicenseStatus() {
+  try {
+    const res = await fetch(`${BASE_URL}/health`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const versionEl = document.getElementById("appVersion");
+    if (versionEl && data.version) {
+      versionEl.textContent = "v" + data.version;
+    }
+
+    const license = data.license || {};
+    const banner = document.getElementById("licenseBanner");
+    const bannerText = document.getElementById("licenseBannerText");
+    if (!banner || !bannerText) return;
+
+    if (license.reason === "expiring_soon" && license.days_remaining !== undefined) {
+      bannerText.textContent =
+        `Your Vvault license expires in ${license.days_remaining} day(s) (${license.expires_at}). Please renew to avoid interruption.`;
+      banner.style.display = "block";
+    } else if (!license.valid && license.reason && license.reason !== "not_checked") {
+      bannerText.textContent =
+        `License issue: ${license.reason}. Please place your .vvault-license file in the Vvault folder and restart.`;
+      banner.style.background = "#f8d7da";
+      banner.style.borderColor = "#f5c6cb";
+      banner.style.color = "#721c24";
+      banner.style.display = "block";
+    }
+  } catch (err) {
+    // Health check failure is non-fatal — do not surface to user
+  }
 }
 
 async function loadRuns() {
@@ -818,7 +852,7 @@ async function loadPreview() {
     ? data.filter(d => d.confidence < 70)
     : data;
 
-    // 🔥 Pagination logic
+    // Pagination logic
     const totalPages = Math.ceil(filteredData.length / pageSize);
     if (currentPage > totalPages) currentPage = totalPages || 1;
 
@@ -1084,85 +1118,6 @@ async function deleteEvidence(evidenceId, cacheId) {
 
 
 
-async function refreshEvidenceList(cacheId) {
-  const listEl = document.getElementById(`evidence-list-${cacheId}`);
-  if (!listEl) return;
-
-  try {
-    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, { headers: authHeaders() });
-    const items = await res.json();
-
-    if (!Array.isArray(items) || items.length === 0) {
-      listEl.innerHTML = '<div style="color:#999; font-size:12px;">No evidence yet.</div>';
-      return;
-    }
-
-    listEl.innerHTML = items.map(ev => `
-      <div class="evidence-item">
-        <span class="evidence-type-badge">${ev.evidence_type}</span>
-        <div style="flex:1;">
-          <div class="evidence-content">${ev.content || ""}${ev.filename ? ` <em style="color:#888">(${ev.filename})</em>` : ""}</div>
-          <div class="evidence-meta">Added by ${ev.created_by} · ${new Date(ev.created_at).toLocaleString()}</div>
-        </div>
-        <button onclick="deleteEvidence(${ev.id}, ${cacheId})"
-          style="font-size:11px; padding:2px 6px; background:#dc3545;">Delete</button>
-      </div>
-    `).join("");
-  } catch (err) {
-    listEl.innerHTML = '<div style="color:red; font-size:12px;">Failed to load evidence.</div>';
-  }
-}
-
-async function addEvidence(cacheId) {
-  const content = document.getElementById(`evidenceContent_${cacheId}`)?.value.trim();
-  const evidence_type = document.getElementById(`evidenceType_${cacheId}`)?.value;
-  const filename = document.getElementById(`evidenceFilename_${cacheId}`)?.value.trim();
-  const msgEl = document.getElementById(`evidenceMsg_${cacheId}`);
-
-  if (!content) {
-    if (msgEl) { msgEl.style.color = "red"; msgEl.innerText = "Content is required."; }
-    return;
-  }
-
-  try {
-    const res = await fetch(`${BASE_URL}/cache/evidence/${cacheId}`, {
-      method: "POST",
-      headers: { ...authHeaders(), "Content-Type": "application/json" },
-      body: JSON.stringify({ content, evidence_type, filename }),
-    });
-
-    if (!res.ok) {
-      const err = await res.json();
-      if (msgEl) { msgEl.style.color = "red"; msgEl.innerText = err.detail || "Failed to add evidence."; }
-      return;
-    }
-
-    document.getElementById(`evidenceContent_${cacheId}`).value = "";
-    document.getElementById(`evidenceFilename_${cacheId}`).value = "";
-    if (msgEl) {
-      msgEl.style.color = "green";
-      msgEl.innerText = "Evidence added";
-      setTimeout(() => { msgEl.innerText = ""; }, 2000);
-    }
-
-    await refreshEvidenceList(cacheId);
-  } catch (err) {
-    if (msgEl) { msgEl.style.color = "red"; msgEl.innerText = "Error: " + err.message; }
-  }
-}
-
-async function deleteEvidence(evidenceId, cacheId) {
-  try {
-    const res = await fetch(`${BASE_URL}/cache/evidence/${evidenceId}`, {
-      method: "DELETE",
-      headers: authHeaders(),
-    });
-    if (res.ok) await refreshEvidenceList(cacheId);
-  } catch (err) {
-    console.error("deleteEvidence error:", err);
-  }
-}
-
 // ---------- SEARCH ----------
 function filterTable() {
   const input = document.getElementById("searchInput").value.toLowerCase();
@@ -1231,6 +1186,7 @@ async function bulkReject() {
   loadPreview();
   loadAuditLogs();
 }
+
 // ---------- DOWNLOAD ----------
 function downloadFinal() {
   if (!finalFileBlob) {
@@ -1348,5 +1304,3 @@ window.bulkApprove = bulkApprove;
 window.bulkReject = bulkReject;
 window.autoApprove = autoApprove;
 window.downloadApproved = downloadApproved;
-
-
