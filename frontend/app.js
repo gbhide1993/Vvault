@@ -1349,4 +1349,4 @@ window.bulkReject = bulkReject;
 window.autoApprove = autoApprove;
 window.downloadApproved = downloadApproved;
 
-initApp();
+
