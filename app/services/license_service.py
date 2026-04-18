@@ -32,7 +32,7 @@ E7nt7Cw3D8ZqiHgqurrjqFMREFbd6ckDFnFd/edAhCqPKdqCWZ09tI4iNEsdehyk
 ArVGj7OeqIqsxdwrwg7ZgkQ/hObghdRxg5GzOAX6bG6ZXQInEVzHkD/Aiob0tRcr
 BjsLhZjmw10chbg3YKU/3Q6Pd9r0XgEYi/K9xaD39Lqz4HM+8UZZ2qnqMhhr6ziR
 XQIDAQAB
------END PUBLIC KEY-----"""""
+-----END PUBLIC KEY-----"""
 
 # ── LICENSE STATUS ──
 _license_status = {
@@ -60,6 +60,10 @@ def find_license_file() -> Optional[str]:
     """
     Search for .vvault-license file in common locations.
     Checks: /app, /app/license, current directory, home directory.
+
+    Operators: place your .vvault-license in the project root on the host.
+    Use a dedicated volume mount (e.g. ./my.vvault-license:/app/my.vvault-license)
+    rather than mounting the entire source tree.
     """
     search_paths = [
         "/app/*.vvault-license",

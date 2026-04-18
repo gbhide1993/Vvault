@@ -2,10 +2,15 @@ from app.services.cache_db import fetch_similar, insert_cache
 from app.services.embedding_service import generate_embedding
 import os
 import hashlib
+import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", 0.85))
 
 CACHE = {}  # in-memory cache
+_cache_lock = threading.Lock()
 
 
 def get_hash(text):
@@ -16,20 +21,21 @@ def get_cached_answer(question: str, org_id=None):
     q = (org_id, question.lower())
 
     # ⚡ 1. In-memory cache
-    if q in CACHE:
-        print("⚡ In-memory cache hit")
-        return CACHE[q]
+    with _cache_lock:
+        if q in CACHE:
+            logger.debug("⚡ In-memory cache hit")
+            return CACHE[q]
 
     # 🧠 2. DB semantic cache
     embedding = generate_embedding(question)
     result = fetch_similar(embedding, threshold=THRESHOLD, org_id=org_id)
 
     if result:
-        print("⚡ DB cache hit")
+        logger.debug("⚡ DB cache hit")
 
         # 🔥 ONLY APPROVED
         if result.get("status") != "approved":
-            print("⛔ Skipping non-approved cache")
+            logger.debug("⛔ Skipping non-approved cache")
             return None
 
         cache_obj = {
@@ -38,7 +44,8 @@ def get_cached_answer(question: str, org_id=None):
             "source": result.get("source", "cache"),
         }
 
-        CACHE[q] = cache_obj
+        with _cache_lock:
+            CACHE[q] = cache_obj
         return cache_obj
 
     return None
@@ -62,10 +69,11 @@ def set_cached_answer(question: str, data, org_id=None):
     else:
         answer = data
 
-    CACHE[q] = {
-        "answer": answer,
-        "source": source,
-    }
+    with _cache_lock:
+        CACHE[q] = {
+            "answer": answer,
+            "source": source,
+        }
 
     embedding = generate_embedding(question)
     q_hash = get_hash(question)
@@ -85,5 +93,3 @@ def set_cached_answer(question: str, data, org_id=None):
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
     )
-
-

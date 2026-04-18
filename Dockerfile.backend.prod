@@ -17,6 +17,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app/ ./app/
 COPY db/ ./db/
 
+
 # Create license directory (mounted from host at runtime)
 # Source code NOT copied here — license file stays on customer machine
 RUN mkdir -p /app/license

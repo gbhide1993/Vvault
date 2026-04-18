@@ -12,6 +12,7 @@ services:
       - "5432:5432"
     volumes:
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - pgdata:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d vvault"]
       interval: 5s
@@ -19,10 +20,14 @@ services:
       retries: 10
 
   backend:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.backend.prod
     container_name: vvault_backend
     depends_on:
       db:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     env_file:
       - .env  
@@ -35,8 +40,13 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Place your .vvault-license file in this folder before running
-      - .:/app
+      - ./license:/app/license:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   frontend:
       build: ./frontend
@@ -44,7 +54,8 @@ services:
         - "3000:80"
         - "3443:443"
       depends_on:
-        - backend
+        backend:
+          condition: service_healthy
       volumes:
         - ./certs:/etc/nginx/certs:ro
 
@@ -53,7 +64,7 @@ services:
     image: ollama/ollama
     container_name: vvault_ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama_data:/root/.ollama    
     entrypoint: >
@@ -64,6 +75,11 @@ services:
       ollama pull nomic-embed-text &&
       wait
       "
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q phi3 || exit 1"]
+      interval: 10s
+      retries: 30
+      start_period: 20s
 
 volumes:
   pgdata:

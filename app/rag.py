@@ -114,6 +114,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
 
         for row in rows:
             source_text = ""
+            context = ""
             _q_start = time.time()
             idx = row["index"]
             question = row["question"]
@@ -319,10 +320,10 @@ Answer:
 
                 # 🔥 EVIDENCE (SAFE FALLBACKS)
                 "evidence": getattr(answer_obj, "evidence", ""),
-                "raw_context": locals().get("context", ""),
+                "raw_context": context,
 
                 # 🔥 TRACEABILITY (for Phase 2 ready)
-                "documents": locals().get("kb_sources", []),
+                "documents": [],
 
                 # 🔥 KEEP OLD (don't break anything)
                 "source_text": source_text,
@@ -348,7 +349,7 @@ Answer:
             llm_avg = sum(_bench_stats["llm"]) / len(_bench_stats["llm"])
             est_300_llm = (llm_avg * 300) / 60
             bench_lines.append(f"Est. 300q LLM: {est_300_llm:.0f} minutes (LLM only)")
-        logger.warning(" | ".join(bench_lines))
+        logger.info(" | ".join(bench_lines))
 
         output = write_answers(sheet_data, answers, rows)
         with open(f"/tmp/{run_id}.xlsx", "wb") as f:

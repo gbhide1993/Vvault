@@ -50,8 +50,6 @@ def get_pending(request: Request, limit: int = 50):
 # ----------------------------------
 # 2. APPROVE SINGLE
 # ----------------------------------
-from fastapi.responses import JSONResponse   # add to top-of-file imports
-
 @router.post("/approve/{cache_id}")
 def approve(cache_id: int, request: Request):
     if request.state.role != "admin":
@@ -414,6 +412,8 @@ def get_job_status(run_id: str, request: Request):
 @router.get("/upload/download/{run_id}")
 def download_job_result(run_id: str):
     import os
+    import threading
+    import time
     from fastapi.responses import FileResponse
     from app.services.job_service import get_job
 
@@ -429,6 +429,15 @@ def download_job_result(run_id: str):
 
     if not os.path.exists(filepath):
         raise HTTPException(status_code=404, detail="Result file not available — re-run autofill")
+
+    def _delete_after_delay(path, delay=5):
+        time.sleep(delay)
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    threading.Thread(target=_delete_after_delay, args=(filepath,), daemon=True).start()
 
     return FileResponse(
         filepath,
@@ -532,66 +541,3 @@ def get_audit_logs(limit: int = 50):
 
     return results
 
-# ----------------------------------
-# EVIDENCE ROUTES
-# ----------------------------------
-
-@router.post("/evidence/{cache_id}")
-def add_evidence(cache_id: int, body: dict, request: Request):
-    from app.services.cache_db import get_conn
-    conn = get_conn()
-    cur = conn.cursor()
-    org_id = request.state.username
-    cur.execute("""
-        INSERT INTO evidence (cache_id, org_id, evidence_type, content, filename, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-    """, (
-        cache_id, org_id,
-        body.get("evidence_type", "note"),
-        body.get("content", ""),
-        body.get("filename", ""),
-        request.state.username
-    ))
-    new_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"id": new_id, "message": "Evidence added"}
-
-
-@router.get("/evidence/{cache_id}")
-def get_evidence(cache_id: int, request: Request):
-    from app.services.cache_db import get_conn
-    from psycopg2.extras import RealDictCursor
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    org_id = request.state.username
-    cur.execute("""
-        SELECT id, cache_id, evidence_type, content, filename, created_by, created_at
-        FROM evidence
-        WHERE cache_id = %s AND org_id = %s
-        ORDER BY created_at DESC
-    """, (cache_id, org_id))
-    results = cur.fetchall()
-    cur.close()
-    conn.close()
-    return results
-
-
-@router.delete("/evidence/{evidence_id}")
-def delete_evidence(evidence_id: int, request: Request):
-    from app.services.cache_db import get_conn
-    conn = get_conn()
-    cur = conn.cursor()
-    org_id = request.state.username
-    cur.execute("""
-        DELETE FROM evidence WHERE id = %s AND org_id = %s
-    """, (evidence_id, org_id))
-    deleted = cur.rowcount > 0
-    conn.commit()
-    cur.close()
-    conn.close()
-    if not deleted:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=404, content={"error": "Not found"})
-    return {"message": f"Evidence {evidence_id} deleted"}

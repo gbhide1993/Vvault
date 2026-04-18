@@ -1,10 +1,14 @@
+import logging
 from fastapi import APIRouter, UploadFile, File, HTTPException, Request
 
 from app.services.knowledge_service import (
     chunk_text,
     store_chunks,
-    extract_text_from_pdf
+    extract_text_from_pdf,
+    get_uploaded_sources,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
 
@@ -54,44 +58,19 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...)):
         "filename": file.filename
     }
 
-def get_uploaded_sources():
-    from app.services.cache_db import get_conn  # reuse existing connection
-
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT DISTINCT source
-            FROM knowledge_base
-            ORDER BY source;
-        """)
-
-        rows = cur.fetchall()
-
-        cur.close()
-        conn.close()
-
-        return [r[0] for r in rows]
-
-    except Exception as e:
-        print("❌ get_uploaded_sources error:", str(e))
-        return []
-
 
 @router.get("/sources")
 def get_sources(request: Request):
     try:
-        from app.services.knowledge_service import get_uploaded_sources
         return get_uploaded_sources(org_id=request.state.username)
     except Exception as e:
-        print("❌ /sources error:", str(e))
+        logger.error("/sources error: %s", e)
         return {"error": str(e)}
+
+
 # -----------------------------
 # HEALTH CHECK
 # -----------------------------
 @router.get("/health")
 def health():
     return {"status": "knowledge service running"}
-
-
