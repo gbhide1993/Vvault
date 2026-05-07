@@ -160,3 +160,26 @@ def get_uploaded_sources(org_id=None):
     except Exception as e:
         logger.error("get_uploaded_sources error: %s", str(e))
         return []
+
+def retrieve_knowledge_by_embedding(embedding: list, top_k: int = 3, org_id: str = None) -> str:
+    from app.services.cache_db import get_conn
+    from psycopg2.extras import RealDictCursor
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+        cur.execute("""
+        SELECT content, 1 - (embedding <=> %s::vector) AS similarity
+        FROM knowledge_base WHERE org_id = %s
+        ORDER BY similarity DESC LIMIT %s;
+        """, (embedding_str, org_id, top_k))
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+        if not results:
+            return ""
+        return "\n\n".join([r["content"] for r in results])
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("retrieve_knowledge_by_embedding failed: %s", e)
+        return ""
