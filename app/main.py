@@ -43,7 +43,13 @@ def check_required_env():
 async def lifespan(app: FastAPI):
     check_required_env()
     seed_admin_if_missing()
-    init_template_embeddings_once()
+
+    # Non-blocking — if Ollama isn't ready at startup, templates
+    # initialise lazily on first use instead of blocking startup
+    try:
+        init_template_embeddings_once()
+    except Exception as e:
+        logger.warning("Template embedding init deferred (Ollama not ready): %s", e)
 
     try:
         import glob

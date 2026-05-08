@@ -53,17 +53,29 @@ def is_valid_sheet(sheet_name, df):
 
 def find_question_column(df):
 
-    # ✅ Step 1: Try header-based detection
+    # ✅ Step 1: Exact match first — "Question" beats "Question ID"
+    # Columns that are exactly one of these keywords win immediately
+    exact_keywords = ["question", "control", "requirement", "description"]
+
+    for col in df.columns:
+        col_lower = str(col).lower().strip()
+        if col_lower in exact_keywords:
+            return col
+
+    # ✅ Step 2: Partial keyword match — but skip ID/reference columns
+    # "Question ID", "Question No", "Question Number", "Question #" are skipped
+    skip_suffixes = ["id", "no", "num", "number", "#", "code", "ref"]
+
     for col in df.columns:
         col_lower = str(col).lower().strip()
 
-        if any(keyword in col_lower for keyword in [
-            "question", "control", "requirement", "description"
-        ]):
+        if any(keyword in col_lower for keyword in exact_keywords):
+            # Skip if it looks like an ID/reference column
+            if any(skip in col_lower for skip in skip_suffixes):
+                continue
             return col
 
-    # 🔥 Step 2: Content-based detection (NEW)
-
+    # 🔥 Step 3: Content-based detection (fallback)
     best_col = None
     best_score = 0
 
@@ -114,6 +126,12 @@ def is_valid_question(text: str):
 
     # ❌ skip numeric-only rows
     if text.replace(".", "").isdigit():
+        return False
+
+    # ❌ skip ID-like values (e.g. "AIS-01.1", "A&A-02.3")
+    # Pattern: short alphanumeric with hyphens and dots, no spaces
+    import re
+    if re.match(r'^[A-Za-z0-9&]{1,10}-\d+\.\d+$', text.strip()):
         return False
 
     # ✅ allow real questions
@@ -171,7 +189,7 @@ def parse_excel(file):
             all_rows.append({
                 "index": global_index,
                 "question": question,
-                "sheet":sheet_name,
+                "sheet": sheet_name,
                 "row_idx": i
             })
 
