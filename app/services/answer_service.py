@@ -4,7 +4,7 @@ import requests
 logger = logging.getLogger(__name__)
 
 OLLAMA_URL = "http://ollama:11434/api/generate"
-MODEL = "phi3:mini"
+MODEL = "qwen2:1.5b"
 
 
 def generate_answer(prompt: str, context: str = "") -> str:
@@ -16,13 +16,14 @@ def generate_answer(prompt: str, context: str = "") -> str:
                 "prompt": prompt,
                 "stream": False,
                 "options": {
-                    "num_predict": 120,
+                    "num_predict": 40,
                     "temperature": 0.1,
-                    "num_ctx": 2048,
+                    "num_ctx": 1024,
+                    "num_threads": 4,
                     "stop": ["\n\n", "Question:", "Context:"]
                 }
             },
-            timeout=180
+            timeout=300
         )
 
         if response.status_code != 200:
@@ -31,11 +32,11 @@ def generate_answer(prompt: str, context: str = "") -> str:
 
         data = response.json()
         answer = data.get("response", "").strip()
-        logger.debug("phi3:mini answered: %s", answer[:80])
+        logger.debug("qwen2:1.5b answered: %s", answer[:80])
         return answer
 
     except requests.exceptions.Timeout:
-        logger.warning("phi3:mini timed out after 180s")
+        logger.warning("qwen2:1.5b timed out after 300s")
         return ""
 
     except Exception as e:

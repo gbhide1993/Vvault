@@ -10,7 +10,8 @@ def generate_embedding(text):
 
     payload = {
         "model": "nomic-embed-text",
-        "prompt": text
+        "prompt": text,
+        "keep_alive": "24h"
     }
 
     for attempt in range(5):

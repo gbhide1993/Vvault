@@ -93,3 +93,62 @@ def set_cached_answer(question: str, data, org_id=None):
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
     )
+
+
+def get_cached_answer_with_embedding(question_embedding, org_id=None, question=""):
+    if question:
+        q = (org_id, question.lower())
+        with _cache_lock:
+            if q in CACHE:
+                logger.debug("⚡ In-memory cache hit (embedding path)")
+                return CACHE[q]
+
+    result = fetch_similar(question_embedding, threshold=THRESHOLD, org_id=org_id)
+
+    if result:
+        if result.get("status") != "approved":
+            logger.debug("⛔ Skipping non-approved cache")
+            return None
+
+        cache_obj = {
+            "answer": result["answer"],
+            "matched_question": result.get("question"),
+            "source": result.get("source", "cache"),
+        }
+
+        if question:
+            q = (org_id, question.lower())
+            with _cache_lock:
+                CACHE[q] = cache_obj
+        return cache_obj
+
+    return None
+
+
+def set_cached_answer_with_embedding(question, question_embedding, data):
+    org_id = data.get("org_id", "default") if isinstance(data, dict) else "default"
+    q = (org_id, question.lower())
+
+    answer = data.get("answer") if isinstance(data, dict) else data
+    source = data.get("source", "llm") if isinstance(data, dict) else "llm"
+    confidence = data.get("confidence", 50) if isinstance(data, dict) else 50
+
+    with _cache_lock:
+        CACHE[q] = {"answer": answer, "source": source}
+
+    q_hash = get_hash(question)
+    insert_cache(
+        question=question,
+        question_hash=q_hash,
+        embedding=question_embedding,
+        answer=answer,
+        confidence=confidence,
+        status="pending",
+        source=source,
+        justification=data.get("justification", "") if isinstance(data, dict) else "",
+        raw_context=data.get("raw_context", "") if isinstance(data, dict) else "",
+        matched_question=None,
+        source_text=data.get("source_text") if isinstance(data, dict) else None,
+        run_id=data.get("run_id") if isinstance(data, dict) else None,
+        org_id=org_id,
+    )

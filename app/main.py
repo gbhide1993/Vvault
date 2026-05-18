@@ -44,12 +44,20 @@ async def lifespan(app: FastAPI):
     check_required_env()
     seed_admin_if_missing()
 
-    # Non-blocking — if Ollama isn't ready at startup, templates
-    # initialise lazily on first use instead of blocking startup
+    from app.services.ollama_warmup import warm_up_ollama
+    ollama_ready = warm_up_ollama()
+    if not ollama_ready:
+        logger.warning("Ollama not fully ready at startup — first requests may be slow")
+
     try:
         init_template_embeddings_once()
     except Exception as e:
         logger.warning("Template embedding init deferred (Ollama not ready): %s", e)
+
+    from app.services.retrieval_service import warm_up_embeddings
+    warm_up_embeddings()
+
+    logger.info("✅ Vvault startup complete — all caches warm, ready to serve")
 
     try:
         import glob

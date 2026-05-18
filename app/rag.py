@@ -13,11 +13,15 @@ from app.utils.excel_writer import write_answers
 
 from app.services.answer_service import generate_answer
 from app.services.template_service import get_template_answer, init_template_embeddings_once
-from app.services.cache_service import get_cached_answer, set_cached_answer
+from app.services.cache_service import (
+    get_cached_answer, set_cached_answer,
+    get_cached_answer_with_embedding, set_cached_answer_with_embedding,
+)
 from app.services.dropdown_service import detect_dropdown_columns, map_answer_to_option
 from app.models.answer_model import AnswerMetadata
 from app.services.confidence_service import build_confidence
-from app.services.knowledge_service import retrieve_knowledge
+from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding
+from app.services.retrieval_service import retrieve_top_k_with_embedding
 from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 from app.services.embedding_service import generate_embedding
 from app.services.cache_db import fetch_similar
@@ -92,6 +96,8 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
         _bench_start = time.time()
         _bench_stats = {"cache": [], "template": [], "llm": [], "direct_context": [], "fallback": []}
 
+        init_template_embeddings_once()
+
         for row in rows:
             source_text = ""
             context = ""
@@ -100,90 +106,70 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
             question = row["question"].strip()
             sheet_name = row["sheet"]
 
-            # ── STEP 1: Generate ONE embedding, reuse everywhere ───────────────
-            # Previously: 3-4 separate embedding calls per question
-            # Now: 1 embedding call, reused for cache lookup + KB retrieval
+            # PATH A — Template (0 Ollama calls)
             try:
-                q_embedding = generate_embedding(question)
+                template = get_template_answer(question)
             except Exception as e:
-                logger.error("Embedding failed for question %d: %s", idx, e)
-                # Can't do semantic lookup without embedding — use template/fallback
-                q_embedding = None
+                logger.error("Template matching failed for question %d: %s", idx, e)
+                template = None
 
-            # ── STEP 2: Cache lookup (uses precomputed embedding) ─────────────
-            cached = None
-            if q_embedding is not None:
-                try:
-                    # Pass embedding directly to avoid recomputing in get_cached_answer
-                    from app.services.cache_db import fetch_similar
-                    import os
-                    threshold = float(os.getenv("SIMILARITY_THRESHOLD", 0.85))
-                    db_hit = fetch_similar(q_embedding, threshold=threshold, org_id=org_id)
-                    if db_hit and db_hit.get("status") == "approved":
-                        cached = {
-                            "answer": db_hit["answer"],
-                            "matched_question": db_hit.get("question"),
-                            "source": db_hit.get("source", "cache"),
-                        }
-                except Exception as e:
-                    logger.error("Cache lookup failed: %s", e)
-
-            if cached:
-                confidence, justification = build_confidence("cache")
+            if template:
+                confidence, justification = build_confidence("template")
                 answer_obj = AnswerMetadata(
-                    answer=clean_answer(cached["answer"]),
+                    answer=clean_answer(template),
                     confidence=confidence,
-                    source="cache",
-                    justification=justification,
+                    source="template",
                     evidence=[],
-                    matched_question=cached.get("matched_question"),
+                    justification=justification,
                 )
+                print(f"[{idx}] TEMPLATE hit")
 
             else:
-                init_template_embeddings_once()
-
-                # ── STEP 3: Template matching (keyword + semantic, no LLM) ────
+                # PATH B — Cache (1 Ollama call total, already paid)
                 try:
-                    template = get_template_answer(question)
+                    question_embedding = generate_embedding(question)
                 except Exception as e:
-                    logger.error("Template matching failed: %s", e)
-                    template = None
+                    logger.error("Embedding failed for question %d: %s", idx, e)
+                    question_embedding = None
 
-                if template:
-                    source_text = "Based on company policy / template"
-                    confidence, justification = build_confidence("template")
+                cached = None
+                if question_embedding is not None:
+                    try:
+                        cached = get_cached_answer_with_embedding(
+                            question_embedding, org_id=org_id, question=question
+                        )
+                    except Exception as e:
+                        logger.error("Cache lookup failed for question %d: %s", idx, e)
+
+                if cached:
+                    confidence, justification = build_confidence("cache")
                     answer_obj = AnswerMetadata(
-                        answer=clean_answer(template),
+                        answer=clean_answer(cached["answer"]),
                         confidence=confidence,
-                        source="template",
-                        evidence=[],
+                        source="cache",
                         justification=justification,
+                        evidence=[],
+                        matched_question=cached.get("matched_question"),
                     )
+                    print(f"[{idx}] CACHE hit")
 
                 else:
-                    # ── STEP 4: KB retrieval using precomputed embedding ───────
-                    # retrieve_top_k REMOVED — it duplicated KB lookup with a
-                    # static text file. pgvector KB is strictly better.
+                    # PATH C — LLM (1 Ollama call, reuses question_embedding)
                     kb_context = ""
-                    if q_embedding is not None:
+                    if question_embedding is not None:
                         try:
-                            from app.services.knowledge_service import retrieve_knowledge_by_embedding
-                            kb_context = retrieve_knowledge_by_embedding(
-                                q_embedding, top_k=3, org_id=org_id
+                            kb_context = retrieve_knowledge_with_embedding(
+                                question_embedding, org_id=org_id
                             )
-                        except Exception:
-                            # Fallback: recompute embedding inside retrieve_knowledge
-                            try:
-                                kb_context = retrieve_knowledge(question, org_id=org_id)
-                            except Exception as e:
-                                logger.error("KB retrieval failed: %s", e)
-                                kb_context = ""
+                        except Exception as e:
+                            logger.error("KB retrieval failed for question %d: %s", idx, e)
                     else:
                         try:
                             kb_context = retrieve_knowledge(question, org_id=org_id)
                         except Exception as e:
-                            logger.error("KB retrieval failed: %s", e)
-                            kb_context = ""
+                            logger.error("KB retrieval failed for question %d: %s", idx, e)
+
+                    retrieve_top_k_with_embedding(question_embedding) if question_embedding is not None else ""
 
                     context = kb_context[:2000] if kb_context else ""
                     source_text = (kb_context or "")[:200].strip()
@@ -192,111 +178,95 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                     if kb_context:
                         evidence.append({
                             "type": "knowledge_base",
-                            "content": kb_context.split(".")[0][:200]
+                            "content": kb_context.split(".")[0][:200],
                         })
 
-                    # ── STEP 5: Direct context answer (NO LLM call) ───────────
-                    # If KB context is rich, extract the first clean sentence.
-                    # This eliminates the LLM call for ~40% of non-template questions.
-                    if kb_context and len(kb_context.strip()) >= MIN_CONTEXT_FOR_DIRECT_ANSWER:
-                        cleaned = kb_context.replace("\n", " ").strip()
-                        sentences = [s.strip() for s in cleaned.split(".") if len(s.strip()) > 30]
-                        direct_answer = sentences[0] if sentences else cleaned[:200]
+                    prompt = f"""You are the Information Security Officer at a technology company responding to a SOC2 vendor questionnaire.
 
-                        confidence, justification = build_confidence("llm", kb_context)
-                        answer_obj = AnswerMetadata(
-                            answer=clean_answer(direct_answer),
-                            confidence=confidence,
-                            source="direct_context",
-                            justification="Extracted directly from policy documents",
-                            evidence=evidence,
-                        )
-                        logger.debug("Direct context answer — skipped LLM")
-
-                    else:
-                        # ── STEP 6: LLM call (last resort only) ──────────────
-                        prompt = f"""You are a SOC2 security expert. Answer concisely in 1-2 sentences using ONLY the context below.
+STRICT RULES:
+- Always answer in first person as the company ("We use...", "Our organization...")
+- Never say "As an AI" or "I don't have access" — you ARE the security officer
+- Answer in 2 sentences maximum
+- Be direct and affirmative — assume controls exist unless context says otherwise
+- Use the provided context to give specific answers
 
 Context:
-{context if context else "No specific context available."}
+{context}
 
-Question: {question}
+Question:
+{question}
 
 Answer:"""
 
+                    try:
+                        llm_answer = generate_answer(prompt).strip()
+
+                        bad_phrases = [
+                            "no relevant information", "not available", "cannot determine",
+                            "no information", "unknown", "not provided",
+                            "not explicitly stated", "not mentioned", "not found", "not included",
+                        ]
+
+                        is_bad = (
+                            not llm_answer
+                            or any(p in llm_answer.lower() for p in bad_phrases)
+                            or len(llm_answer.strip()) < 20
+                        )
+
+                        if is_bad and context.strip():
+                            cleaned = context.replace("\n", " ").strip()
+                            sentences = cleaned.split(".")
+                            llm_answer = sentences[0].strip() if sentences else cleaned
+
+                        if not llm_answer or len(llm_answer.strip()) < 10:
+                            llm_answer = "Security controls are implemented based on organizational policies and best practices."
+
+                        llm_answer = clean_answer(llm_answer)
+                        confidence, justification = build_confidence("llm", context)
+
+                        answer_obj = AnswerMetadata(
+                            answer=llm_answer,
+                            confidence=confidence,
+                            source="llm",
+                            justification=justification,
+                            evidence=evidence,
+                        )
+
+                    except Exception as e:
+                        logger.error("LLM failed for question %d: %s", idx, e)
+                        answer_obj = AnswerMetadata(
+                            answer="Security controls are implemented based on organizational policies and best practices.",
+                            confidence=0.3,
+                            source="fallback",
+                            justification="LLM failure",
+                            evidence=[],
+                        )
+
+                    if answer_obj.answer and question_embedding is not None:
                         try:
-                            llm_answer = generate_answer(prompt).strip()
-
-                            bad_phrases = [
-                                "no relevant information", "not available", "cannot determine",
-                                "no information", "unknown", "not provided",
-                                "not explicitly stated", "not mentioned", "not found", "not included"
-                            ]
-
-                            is_bad = (
-                                not llm_answer
-                                or any(p in llm_answer.lower() for p in bad_phrases)
-                                or len(llm_answer.strip()) < 20
-                            )
-
-                            if is_bad and context.strip():
-                                cleaned = context.replace("\n", " ").strip()
-                                sentences = cleaned.split(".")
-                                llm_answer = sentences[0].strip() if sentences else cleaned
-
-                            if not llm_answer or len(llm_answer.strip()) < 10:
-                                llm_answer = "Security controls are implemented based on organizational policies and best practices."
-
-                            llm_answer = clean_answer(llm_answer)
-                            confidence, justification = build_confidence("llm", context)
-
-                            answer_obj = AnswerMetadata(
-                                answer=llm_answer,
-                                confidence=confidence,
-                                source="llm",
-                                justification=justification,
-                                evidence=evidence,
-                            )
-
-                        except Exception as e:
-                            logger.error("LLM failed: %s", e)
-                            answer_obj = AnswerMetadata(
-                                answer="Security controls are implemented based on organizational policies and best practices.",
-                                confidence=0.3,
-                                source="fallback",
-                                justification="LLM failure",
-                                evidence=[],
-                            )
-
-                    # ── STEP 7: Save to cache ─────────────────────────────────
-                    if answer_obj.answer and q_embedding is not None:
-                        try:
-                            from app.services.cache_service import get_hash
-                            from app.services.cache_db import insert_cache
-                            import hashlib
-                            q_hash = hashlib.sha256(question.strip().lower().encode()).hexdigest()
-                            insert_cache(
-                                question=question,
-                                question_hash=q_hash,
-                                embedding=q_embedding,  # reuse — no extra Ollama call
-                                answer=answer_obj.answer,
-                                confidence=int(answer_obj.confidence * 100),
-                                status="pending",
-                                source=answer_obj.source,
-                                justification=getattr(answer_obj, "justification", ""),
-                                raw_context=context if answer_obj.source in ("llm", "direct_context") else "",
-                                matched_question=None,
-                                source_text=source_text,
-                                run_id=run_id,
-                                org_id=org_id,
+                            set_cached_answer_with_embedding(
+                                question,
+                                question_embedding,
+                                {
+                                    "answer": answer_obj.answer,
+                                    "source": answer_obj.source,
+                                    "confidence": int(answer_obj.confidence * 100),
+                                    "justification": getattr(answer_obj, "justification", ""),
+                                    "raw_context": context,
+                                    "source_text": source_text,
+                                    "run_id": run_id,
+                                    "org_id": org_id,
+                                },
                             )
                         except Exception as e:
-                            logger.error("Cache save failed: %s", e)
+                            logger.error("Cache save failed for question %d: %s", idx, e)
+
+                    print(f"[{idx}] LLM answer generated")
 
             src = answer_obj.source if answer_obj.source in _bench_stats else "fallback"
             _bench_stats[src].append(time.time() - _q_start)
 
-            # ── Dropdown mapping ───────────────────────────────────────────────
+            # Dropdown mapping — runs for every path
             df = sheet_data[sheet_name]["df"]
             dropdown_cols = dropdown_map.get(sheet_name, {})
             final_answer = answer_obj.answer
@@ -318,10 +288,7 @@ Answer:"""
             }
 
             src = answers[idx].get("source", "fallback")
-            # Map direct_context to llm for job tracking purposes
             update_job_progress(run_id, src if src in ["template", "llm", "cache"] else "llm")
-            
-            
 
         # ── Benchmark ─────────────────────────────────────────────────────────
         _total = time.time() - _bench_start
