@@ -30,6 +30,7 @@ def fetch_similar(embedding, threshold=0.85, org_id=None):
     FROM qa_cache
     WHERE 1 - (embedding <=> %s::vector) > %s
       AND org_id = %s
+      AND status = 'approved'
     ORDER BY similarity DESC
     LIMIT 1;
     """

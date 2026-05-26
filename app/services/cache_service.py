@@ -7,7 +7,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", 0.85))
+THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", 0.75))
 
 CACHE = {}  # in-memory cache
 _cache_lock = threading.Lock()
