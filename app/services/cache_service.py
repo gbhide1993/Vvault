@@ -17,7 +17,7 @@ def get_hash(text):
     return hashlib.sha256(text.strip().lower().encode()).hexdigest()
 
 
-def get_cached_answer(question: str, org_id=None):
+def get_cached_answer(question: str, org_id=None, embedding=None):
     q = (org_id, question.lower())
 
     # ⚡ 1. In-memory cache
@@ -27,7 +27,8 @@ def get_cached_answer(question: str, org_id=None):
             return CACHE[q]
 
     # 🧠 2. DB semantic cache
-    embedding = generate_embedding(question)
+    if embedding is None:
+        embedding = generate_embedding(question)
     result = fetch_similar(embedding, threshold=THRESHOLD, org_id=org_id)
 
     if result:
@@ -51,7 +52,7 @@ def get_cached_answer(question: str, org_id=None):
     return None
 
 
-def set_cached_answer(question: str, data, org_id=None):
+def set_cached_answer(question: str, data, org_id=None, embedding=None):
     q = (org_id, question.lower())
 
     answer = None
@@ -75,7 +76,8 @@ def set_cached_answer(question: str, data, org_id=None):
             "source": source,
         }
 
-    embedding = generate_embedding(question)
+    if embedding is None:
+        embedding = generate_embedding(question)
     q_hash = get_hash(question)
 
     insert_cache(

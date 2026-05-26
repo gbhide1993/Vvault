@@ -15,7 +15,6 @@ from app.services.answer_service import generate_answer
 from app.services.template_service import get_template_answer, init_template_embeddings_once
 from app.services.cache_service import (
     get_cached_answer, set_cached_answer,
-    get_cached_answer_with_embedding, set_cached_answer_with_embedding,
 )
 from app.services.dropdown_service import detect_dropdown_columns, map_answer_to_option
 from app.models.answer_model import AnswerMetadata
@@ -135,8 +134,8 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                 cached = None
                 if question_embedding is not None:
                     try:
-                        cached = get_cached_answer_with_embedding(
-                            question_embedding, org_id=org_id, question=question
+                        cached = get_cached_answer(
+                            question, org_id=org_id, embedding=question_embedding
                         )
                     except Exception as e:
                         logger.error("Cache lookup failed for question %d: %s", idx, e)
@@ -244,9 +243,8 @@ Answer:"""
 
                     if answer_obj.answer and question_embedding is not None:
                         try:
-                            set_cached_answer_with_embedding(
+                            set_cached_answer(
                                 question,
-                                question_embedding,
                                 {
                                     "answer": answer_obj.answer,
                                     "source": answer_obj.source,
@@ -257,6 +255,8 @@ Answer:"""
                                     "run_id": run_id,
                                     "org_id": org_id,
                                 },
+                                org_id=org_id,
+                                embedding=question_embedding,
                             )
                         except Exception as e:
                             logger.error("Cache save failed for question %d: %s", idx, e)
