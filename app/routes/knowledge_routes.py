@@ -6,6 +6,7 @@ from app.services.knowledge_service import (
     store_chunks,
     extract_text_from_pdf,
     get_uploaded_sources,
+    delete_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -66,6 +67,15 @@ def get_sources(request: Request):
     except Exception as e:
         logger.error("/sources error: %s", e)
         return {"error": str(e)}
+
+
+@router.delete("/sources/{source_name}")
+def delete_knowledge_source(source_name: str, request: Request):
+    org_id = request.state.username
+    count = delete_source(source=source_name, org_id=org_id)
+    if count == 0:
+        raise HTTPException(status_code=404, detail="Source not found")
+    return {"message": f"Deleted {count} chunks for '{source_name}'", "deleted_chunks": count}
 
 
 # -----------------------------

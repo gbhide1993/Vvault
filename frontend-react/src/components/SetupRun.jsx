@@ -411,6 +411,7 @@ export default function SetupRun({ onNavigate }) {
   const [knowledgeFiles, setKnowledgeFiles] = useState([]);
   const [knowledgeStatus, setKnowledgeStatus] = useState('');
   const [isUploadingKnowledge, setIsUploadingKnowledge] = useState(false);
+  const [confirmDeleteFile, setConfirmDeleteFile] = useState(null);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReceipt, setShowReceipt] = useState(false);
@@ -522,6 +523,24 @@ export default function SetupRun({ onNavigate }) {
     } finally {
       setIsUploadingKnowledge(false);
       e.target.value = null;
+    }
+  };
+
+  const handleDeleteSource = async (fileName) => {
+    try {
+      const res = await fetch(`${BASE_URL}/knowledge/sources/${encodeURIComponent(fileName)}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.detail || 'Delete failed');
+      }
+      fetchKnowledgeList();
+    } catch (err) {
+      setKnowledgeStatus(`Error: ${err.message}`);
+    } finally {
+      setConfirmDeleteFile(null);
     }
   };
 
@@ -706,13 +725,53 @@ export default function SetupRun({ onNavigate }) {
               {knowledgeFiles.length === 0 ? (
                 <p className="text-sm text-slate-500 italic">No files uploaded yet.</p>
               ) : (
-                <ul className="list-disc list-inside text-sm text-slate-400 space-y-1">
+                <ul className="text-sm text-slate-400 space-y-2">
                   {knowledgeFiles.map((file, idx) => (
-                    <li key={idx} className="marker:text-slate-600">{file}</li>
+                    <li key={idx} className="flex items-center justify-between gap-2 group">
+                      <span className="truncate">{file}</span>
+                      <button
+                        onClick={() => setConfirmDeleteFile(file)}
+                        disabled={isProcessing}
+                        title="Delete source"
+                        className="shrink-0 text-slate-600 hover:text-red-400 transition-colors disabled:opacity-30"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="3 6 5 6 21 6" />
+                          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                          <path d="M10 11v6M14 11v6" />
+                          <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+                        </svg>
+                      </button>
+                    </li>
                   ))}
                 </ul>
               )}
             </div>
+
+            {confirmDeleteFile && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+                <div className="bg-slate-900 border border-slate-700 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+                  <h3 className="text-white font-semibold mb-2">Delete source?</h3>
+                  <p className="text-slate-400 text-sm mb-5">
+                    All chunks from <span className="text-white font-medium">{confirmDeleteFile}</span> will be permanently removed from the knowledge base.
+                  </p>
+                  <div className="flex gap-3 justify-end">
+                    <button
+                      onClick={() => setConfirmDeleteFile(null)}
+                      className="px-4 py-2 text-sm text-slate-400 hover:text-white transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleDeleteSource(confirmDeleteFile)}
+                      className="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 

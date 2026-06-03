@@ -161,6 +161,20 @@ def get_uploaded_sources(org_id=None):
         logger.error("get_uploaded_sources error: %s", str(e))
         return []
 
+def delete_source(source: str, org_id: str) -> int:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "DELETE FROM knowledge_base WHERE source = %s AND org_id = %s",
+        (source, org_id),
+    )
+    deleted = cur.rowcount
+    conn.commit()
+    cur.close()
+    conn.close()
+    return deleted
+
+
 def retrieve_knowledge_with_embedding(question_embedding, top_k=3, org_id=None):
     conn = get_conn()
     cur = conn.cursor(cursor_factory=RealDictCursor)

@@ -46,10 +46,10 @@ services:
       - ./license:/app/license:ro
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
-      interval: 15s
+      interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 120s
+      retries: 10
+      start_period: 240s
 
   frontend:
       build: ./frontend-react
@@ -70,8 +70,8 @@ services:
     mem_limit: 8g
     mem_reservation: 5g
     environment:
-      - OLLAMA_KEEP_ALIVE=10m
-      - OLLAMA_NUM_PARALLEL=1
+      - OLLAMA_KEEP_ALIVE=24h
+      
       - OLLAMA_MAX_LOADED_MODELS=2
       - OLLAMA_FLASH_ATTENTION=1
     ports:
@@ -82,9 +82,10 @@ services:
       sh -c "
       ollama serve &
       sleep 5 &&
-      ollama pull phi3:mini &&
+      ollama pull qwen2.5:1.5b &&
       ollama pull nomic-embed-text &&
-      ollama run phi3:mini 'hello' &&
+      ollama run qwen2.5:1.5b 'hello' &&
+      ollama run nomic-embed-text 'hello' &&
       wait
       "
 
