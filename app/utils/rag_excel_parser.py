@@ -1,5 +1,11 @@
 import pandas as pd
 
+try:
+    from app.utils.framework_detector import get_framework_question_col
+    FRAMEWORK_DETECTION_ENABLED = True
+except Exception:
+    FRAMEWORK_DETECTION_ENABLED = False
+
 def is_valid_sheet(sheet_name, df):
 
     # ❌ Rule 1: Skip obvious non-question sheets
@@ -148,25 +154,94 @@ def is_valid_question(text: str):
     return False
 
 def parse_excel(file):
+    import io as _io
 
-    excel_data = pd.read_excel(file, sheet_name=None)
+    if hasattr(file, 'read'):
+        raw = file.read()
+    else:
+        raw = file.getvalue()
 
-    sheet_data = {}   # 🔥 store per-sheet dataframe
+    excel_data = pd.read_excel(_io.BytesIO(raw), sheet_name=None)
+
+    sheet_data = {}
     all_rows = []
-
     global_index = 0
 
     for sheet_name, df in excel_data.items():
 
-        if not is_valid_sheet(sheet_name, df):
-            print(f"Skipping sheet: {sheet_name}")
-            continue
+        framework_key = None
+        framework_answer_col = None
 
-        question_col = find_question_column(df)
+        if FRAMEWORK_DETECTION_ENABLED:
+            try:
+                from app.utils.framework_detector import detect_framework
+                framework_key, framework_config = detect_framework("", sheet_name, df)
 
-        if not question_col:
-            # 🔥 fallback: use first column
-            question_col = df.columns[0]
+                if framework_key == "CAIQ":
+                    # Re-read with header=1 to skip JSON metadata row
+                    df_reread = None
+                    try:
+                        df_reread = pd.read_excel(
+                            _io.BytesIO(raw),
+                            sheet_name=sheet_name,
+                            header=1
+                        )
+                        print(f"[CAIQ] Re-read with header=1 — {len(df_reread)} rows")
+                        print(f"[CAIQ] Columns: {list(df_reread.columns[:6])}")
+                    except Exception as e:
+                        print(f"[CAIQ] Re-read failed: {e}")
+                        df_reread = None
+
+                    if df_reread is not None:
+                        df = df_reread
+
+                    skip_sheets = framework_config.get("skip_sheets", [])
+                    if any(s in sheet_name.lower() for s in skip_sheets):
+                        print(f"Skipping sheet (CAIQ rule): {sheet_name}")
+                        continue
+
+                    q_col = "Question"
+                    framework_answer_col = "CSP Implementation Description (Optional/Recommended)"
+
+                    print(f"[CAIQ] Looking for q_col={repr(q_col)} in columns={list(df.columns[:6])}")
+
+                    if q_col not in df.columns:
+                        print(f"[CAIQ] STILL NOT FOUND — columns are: {list(df.columns)}")
+                        continue
+
+                    print(f"✅ Framework detected: CSA CAIQ v4 on sheet {repr(sheet_name)}")
+
+                elif framework_key is not None:
+                    skip_sheets = framework_config.get("skip_sheets", [])
+                    if any(s in sheet_name.lower() for s in skip_sheets):
+                        print(f"Skipping sheet (framework rule): {sheet_name}")
+                        continue
+
+                    q_col = framework_config["question_col"]
+                    framework_answer_col = framework_config["answer_col"]
+
+                    if q_col not in df.columns:
+                        framework_key = None
+                    else:
+                        print(f"✅ Framework detected: {framework_config['description']} on sheet {repr(sheet_name)}")
+                else:
+                    q_col = None
+
+            except Exception as e:
+                print(f"Framework detection error (non-fatal): {e}")
+                framework_key = None
+                q_col = None
+        else:
+            q_col = None
+
+        if framework_key is None:
+            if not is_valid_sheet(sheet_name, df):
+                print(f"Skipping sheet: {sheet_name}")
+                continue
+            q_col = find_question_column(df)
+
+        if not q_col:
+            q_col = df.columns[0]
 
         df = df.copy()
         df["Answer"] = ""
@@ -174,8 +249,7 @@ def parse_excel(file):
         sheet_rows = []
 
         for i, row in df.iterrows():
-            question = str(row[question_col]).strip()
-
+            question = str(row[q_col]).strip()
             if not is_valid_question(question):
                 continue
 
@@ -185,19 +259,18 @@ def parse_excel(file):
                 "row_idx": i,
                 "sheet": sheet_name
             })
-
             all_rows.append({
                 "index": global_index,
                 "question": question,
                 "sheet": sheet_name,
                 "row_idx": i
             })
-
             global_index += 1
 
         sheet_data[sheet_name] = {
             "df": df,
-            "rows": sheet_rows
+            "rows": sheet_rows,
+            "answer_col": framework_answer_col
         }
 
     if len(all_rows) == 0:

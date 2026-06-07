@@ -48,12 +48,18 @@ def write_answers(sheet_data, answers, rows):
                 df.to_excel(writer, sheet_name=sheet_name, index=False)
                 continue
 
-            # 🔍 Find answer column (existing Excel logic)
-            answer_col = None
-            for col in df.columns:
-                if col.lower() in ["answer", "response", "status"]:
-                    answer_col = col
-                    break
+            # Check for framework-specified answer column
+            framework_answer_col = data.get("answer_col")
+            if framework_answer_col and framework_answer_col in df.columns:
+                answer_col = framework_answer_col
+                print(f"Using framework answer column: {answer_col}")
+            else:
+                # Existing generic detection (unchanged)
+                answer_col = None
+                for col in df.columns:
+                    if col.lower() in ["answer", "response", "status"]:
+                        answer_col = col
+                        break
 
             if not answer_col:
                 continue
