@@ -100,6 +100,8 @@ export default function AnswerReview() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [expandedEvidence, setExpandedEvidence] = useState(new Set());
   const [expandedExplanation, setExpandedExplanation] = useState(new Set());
+  const [expandedStale, setExpandedStale] = useState(new Set());
+  const [expandedSource, setExpandedSource] = useState({});
 
   const userRole = localStorage.getItem('role');
   const getAuthHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -184,6 +186,12 @@ export default function AnswerReview() {
     const newSet = new Set(expandedExplanation);
     newSet.has(id) ? newSet.delete(id) : newSet.add(id);
     setExpandedExplanation(newSet);
+  };
+
+  const toggleStale = (id) => {
+    const newSet = new Set(expandedStale);
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+    setExpandedStale(newSet);
   };
 
   const handleBulkAction = async (action) => {
@@ -292,6 +300,7 @@ export default function AnswerReview() {
             <TableHead className="w-1/4">Question</TableHead>
             <TableHead className="w-1/3">Answer</TableHead>
             <TableHead className="text-center">Confidence</TableHead>
+            <TableHead className="text-center">Sources</TableHead>
             <TableHead className="text-center cursor-pointer hover:bg-slate-800 transition-none select-none group" onClick={toggleStatusSort} title="Sort by status">
               <div className="flex items-center justify-center gap-2">
                 Status <span className="text-slate-600 group-hover:text-slate-400">{statusSortDir === 'asc' ? '↑' : statusSortDir === 'desc' ? '↓' : '↕'}</span>
@@ -303,7 +312,7 @@ export default function AnswerReview() {
           <TableBody>
             {paginatedData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan="6" className="p-12 text-center text-slate-500">No data found matching your filters.</TableCell>
+                <TableCell colSpan="7" className="p-12 text-center text-slate-500">No data found matching your filters.</TableCell>
               </TableRow>
             ) : (
               paginatedData.map(item => (
@@ -315,11 +324,6 @@ export default function AnswerReview() {
                     <TableCell className="text-slate-200">{item.question || "-"}</TableCell>
                     <TableCell className="text-slate-400">
                       <div>{item.answer || "No relevant information available."}</div>
-                      {item.has_stale_sources && (
-                        <span style={{ background: '#92400e', color: '#fef3c7', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, marginLeft: 4 }}>
-                          ⏰ Stale Source
-                        </span>
-                      )}
                       {item.source === 'llm' && item.source_text && (
                         <div className="mt-3">
                           <button onClick={() => toggleExplanation(item.id)} className="text-[10px] uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700 px-2 py-1 rounded hover:bg-slate-700 transition-none">
@@ -351,6 +355,54 @@ export default function AnswerReview() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center">
+                      {item.has_stale_sources && (
+                        <button
+                          onClick={() => toggleStale(item.id)}
+                          style={{ background: '#92400e', color: '#fef3c7', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, cursor: 'pointer', border: '1px solid #b45309' }}
+                        >
+                          ⏰ Stale {expandedStale.has(item.id) ? '▲' : '▼'}
+                        </button>
+                      )}
+                      {(() => {
+                        const docs = Array.isArray(item.documents)
+                          ? item.documents
+                          : typeof item.documents === 'string' && item.documents
+                            ? item.documents.replace(/^\{|\}$/g, '').split(',').filter(Boolean)
+                            : [];
+                        if (docs.length === 0) return null;
+                        const contextChunks = (item.raw_context || '').split('\n\n').filter(Boolean);
+                        const expandedIdx = expandedSource[item.id];
+                        return (
+                          <div className="flex flex-col items-center gap-1">
+                            <div className="flex flex-wrap gap-1 justify-center">
+                              {docs.map((doc, i) => {
+                                const isExpanded = expandedIdx === i;
+                                return (
+                                  <span
+                                    key={i}
+                                    onClick={() => setExpandedSource(prev => ({ ...prev, [item.id]: isExpanded ? null : i }))}
+                                    className="inline-block max-w-30 truncate text-[10px] bg-slate-700 text-slate-300 border border-slate-600 rounded px-2 py-0.5 cursor-pointer hover:bg-slate-600"
+                                  >
+                                    {doc}
+                                  </span>
+                                );
+                              })}
+                            </div>
+                            {expandedIdx != null && docs[expandedIdx] && (() => {
+                              const rawChunk = contextChunks[expandedIdx] || '';
+                              const excerpt = rawChunk ? rawChunk.split('. ').slice(0, 2).join('. ').trim() : null;
+                              if (!excerpt) return null;
+                              return (
+                                <div style={{ borderLeft: '2px solid #22c55e', paddingLeft: 8, marginTop: 4, textAlign: 'left' }}>
+                                  <p style={{ color: '#888', fontSize: 11, fontStyle: 'italic', margin: 0 }}>{excerpt}</p>
+                                </div>
+                              );
+                            })()}
+                          </div>
+                        );
+                      })()}
+                    </TableCell>
+                    <TableCell className="text-center">
                       <Badge variant={item.status === 'approved' ? 'success' : item.status === 'rejected' ? 'danger' : 'warning'}>
                         {item.status || "pending"}
                       </Badge>
@@ -363,8 +415,24 @@ export default function AnswerReview() {
                   </TableRow>
                   {expandedEvidence.has(item.id) && (
                     <tr className="bg-slate-900/30">
-                      <td colSpan="6" className="p-0">
+                      <td colSpan="7" className="p-0">
                         <EvidencePanel cacheId={item.id} getAuthHeaders={getAuthHeaders} onEvidenceChange={() => fetchPreviewData(currentRunId)} />
+                      </td>
+                    </tr>
+                  )}
+                  {expandedStale.has(item.id) && Array.isArray(item.stale_sources) && item.stale_sources.length > 0 && (
+                    <tr className="bg-amber-950/20">
+                      <td colSpan="7" className="p-0">
+                        <div className="px-6 py-4 border-b border-amber-900/40">
+                          <p style={{ color: '#fb923c', fontSize: 11, fontWeight: 600, marginBottom: 10 }}>⏰ Stale Sources Detected</p>
+                          {item.stale_sources.map((s, si) => (
+                            <div key={si} style={{ borderLeft: '2px solid #f97316', paddingLeft: 10, marginBottom: 6 }}>
+                              <p style={{ color: '#ccc', fontSize: 11, fontStyle: 'italic', margin: 0 }}>
+                                <span style={{ color: '#fef3c7' }}>{s.source}</span> — uploaded {s.age_days} days ago
+                              </p>
+                            </div>
+                          ))}
+                        </div>
                       </td>
                     </tr>
                   )}
