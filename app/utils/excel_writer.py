@@ -9,6 +9,11 @@ import io
 GREEN = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
 YELLOW = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
 RED = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+ORANGE = PatternFill(
+    start_color="FFB347",
+    end_color="FFB347",
+    fill_type="solid"
+)
 
 
 def write_answers(sheet_data, answers, rows):
@@ -94,7 +99,13 @@ def write_answers(sheet_data, answers, rows):
                     df.at[row_idx, answer_col] = answer
                     df.at[row_idx, "Confidence"] = str(confidence)
                     df.at[row_idx, "Source"] = source
-                    df.at[row_idx, "Review Needed"] = "YES" if float(confidence) < 0.70 else "NO"
+                    answer_text = str(df.at[row_idx, answer_col])
+                    if answer_text.startswith("[EVIDENCE GAP]"):
+                        df.at[row_idx, "Review Needed"] = "EVIDENCE GAP"
+                    elif float(confidence) < 0.70:
+                        df.at[row_idx, "Review Needed"] = "YES"
+                    else:
+                        df.at[row_idx, "Review Needed"] = "NO"
                 else:
                     df.at[row_idx, answer_col] = answer_data
 
@@ -130,7 +141,20 @@ def write_answers(sheet_data, answers, rows):
                 confidence_pct = float(confidence_val)
                 if confidence_pct <= 1:
                     confidence_pct *= 100
-                if confidence_pct >= 80:
+                # Check Review Needed column for EVIDENCE GAP
+                review_col_idx = headers.index("Review Needed") + 1 \
+                    if "Review Needed" in headers else None
+
+                is_evidence_gap = False
+                if review_col_idx:
+                    review_val = ws.cell(
+                        row=row, column=review_col_idx
+                    ).value
+                    is_evidence_gap = review_val == "EVIDENCE GAP"
+
+                if is_evidence_gap:
+                    fill = ORANGE
+                elif confidence_pct >= 80:
                     fill = GREEN
                 elif 61 <= confidence_pct <= 79:
                     fill = YELLOW

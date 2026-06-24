@@ -102,6 +102,7 @@ export default function AnswerReview() {
   const [expandedExplanation, setExpandedExplanation] = useState(new Set());
   const [expandedStale, setExpandedStale] = useState(new Set());
   const [expandedSource, setExpandedSource] = useState({});
+  const [expandedConflict, setExpandedConflict] = useState(new Set());
 
   const userRole = localStorage.getItem('role');
   const getAuthHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -192,6 +193,12 @@ export default function AnswerReview() {
     const newSet = new Set(expandedStale);
     newSet.has(id) ? newSet.delete(id) : newSet.add(id);
     setExpandedStale(newSet);
+  };
+
+  const toggleConflict = (id) => {
+    const newSet = new Set(expandedConflict);
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+    setExpandedConflict(newSet);
   };
 
   const handleBulkAction = async (action) => {
@@ -315,8 +322,8 @@ export default function AnswerReview() {
                 <TableCell colSpan="7" className="p-12 text-center text-slate-500">No data found matching your filters.</TableCell>
               </TableRow>
             ) : (
-              paginatedData.map(item => (
-                <React.Fragment key={item.id}>
+              paginatedData.map(item => {
+                return (<React.Fragment key={item.id}>
                   <TableRow>
                     <TableCell className="text-center border-r border-slate-800/50">
                       <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => toggleSelect(item.id)} className="cursor-pointer accent-accent" />
@@ -355,10 +362,18 @@ export default function AnswerReview() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center">
+                      {item.conflict_detected && (
+                        <button
+                          onClick={() => toggleConflict(item.id)}
+                          style={{ background: '#854d0e', color: '#fef08a', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, cursor: 'pointer', border: '1px solid #a16207' }}
+                        >
+                          ⚠ Conflict {expandedConflict.has(item.id) ? '▲' : '▼'}
+                        </button>
+                      )}
                       {item.has_stale_sources && (
                         <button
                           onClick={() => toggleStale(item.id)}
-                          style={{ background: '#92400e', color: '#fef3c7', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, cursor: 'pointer', border: '1px solid #b45309' }}
+                          style={{ background: '#92400e', color: '#fef3c7', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, marginLeft: 4, cursor: 'pointer', border: '1px solid #b45309' }}
                         >
                           ⏰ Stale {expandedStale.has(item.id) ? '▲' : '▼'}
                         </button>
@@ -420,6 +435,30 @@ export default function AnswerReview() {
                       </td>
                     </tr>
                   )}
+                  {expandedConflict.has(item.id) && Array.isArray(item.conflicting_pairs) && item.conflicting_pairs.length > 0 && (
+                    <tr className="bg-yellow-950/20">
+                      <td colSpan="7" className="p-0">
+                        <div className="px-6 py-4 border-b border-yellow-900/40">
+                          <p style={{ color: '#fef08a', fontSize: 11, fontWeight: 600, marginBottom: 10 }}>⚠ Source Conflicts Detected</p>
+                          {item.conflicting_pairs.map((pair, pi) => (
+                            <div key={pi} className="mb-4">
+                              <p style={{ color: '#aaa', fontSize: 11, marginBottom: 6 }}>
+                                <span style={{ color: '#fef08a' }}>{pair.source_a}</span>
+                                <span style={{ color: '#ef4444', margin: '0 8px' }}>vs</span>
+                                <span style={{ color: '#fef08a' }}>{pair.source_b}</span>
+                              </p>
+                              <div style={{ borderLeft: '2px solid #ef4444', paddingLeft: 10, marginBottom: 6 }}>
+                                <p style={{ color: '#ccc', fontSize: 11, fontStyle: 'italic', margin: 0 }}>{pair.excerpt_a}</p>
+                              </div>
+                              <div style={{ borderLeft: '2px solid #ef4444', paddingLeft: 10 }}>
+                                <p style={{ color: '#ccc', fontSize: 11, fontStyle: 'italic', margin: 0 }}>{pair.excerpt_b}</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
                   {expandedStale.has(item.id) && Array.isArray(item.stale_sources) && item.stale_sources.length > 0 && (
                     <tr className="bg-amber-950/20">
                       <td colSpan="7" className="p-0">
@@ -436,8 +475,8 @@ export default function AnswerReview() {
                       </td>
                     </tr>
                   )}
-                </React.Fragment>
-              ))
+                </React.Fragment>);
+              })
             )}
           </TableBody>
         </Table>

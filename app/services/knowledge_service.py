@@ -139,6 +139,89 @@ def retrieve_knowledge(question, top_k=3, org_id=None):
     return "\n\n".join([r["content"] for r in results])
 
 
+def retrieve_knowledge_with_sources(question, top_k=3, org_id=None):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    embedding = generate_embedding(question)
+    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+
+    query = """
+    SELECT content,
+           source,
+           1 - (embedding <=> %s::vector) AS similarity
+    FROM knowledge_base
+    WHERE org_id = %s
+    ORDER BY similarity DESC
+    LIMIT %s;
+    """
+
+    cur.execute(query, (embedding_str, org_id, top_k))
+    results = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return [{"content": r["content"], "source": r["source"], "similarity": float(r["similarity"])} for r in results]
+
+
+def detect_conflicts(chunks):
+    HARD_CONTRADICTIONS = [
+        # colors
+        ("white", "black"), ("white", "dark"),
+        ("black", "white"),
+        # access
+        ("never", "always"), ("never", "immediately"),
+        ("never", "automatically"), ("prohibited", "permitted"),
+        ("not permitted", "permitted"), ("not allowed", "allowed"),
+        ("mandatory", "optional"), ("required", "optional"),
+        ("no exceptions", "optional"), ("must not", "must"),
+        # timing
+        ("before", "after"), ("prior to", "upon"),
+        ("immediately", "never"), ("first", "last"),
+        # approval
+        ("human review required", "automatically"),
+        ("sign-off required", "no sign-off"),
+        ("approved", "not approved"),
+        # boolean
+        ("true", "false"), ("yes", "no"),
+        ("enabled", "disabled"), ("active", "inactive"),
+    ]
+
+    if len(chunks) < 2:
+        return {"conflict": False, "conflicting_pairs": []}
+
+    conflicting_pairs = []
+    conflict_detected = False
+
+    for i in range(len(chunks)):
+        for j in range(i + 1, len(chunks)):
+            chunk_a = chunks[i]
+            chunk_b = chunks[j]
+            a = chunk_a["content"].lower()
+            b = chunk_b["content"].lower()
+
+            words_a = set(w for w in re.findall(r"[a-z]+", a) if len(w) > 4)
+            words_b = set(w for w in re.findall(r"[a-z]+", b) if len(w) > 4)
+            shared = words_a & words_b
+
+            if len(shared) < 2:
+                continue
+
+            for word_a, word_b in HARD_CONTRADICTIONS:
+                if (word_a in a and word_b in b) or (word_b in a and word_a in b):
+                    conflicting_pairs.append({
+                        "source_a": chunk_a["source"],
+                        "excerpt_a": chunk_a["content"][:200],
+                        "source_b": chunk_b["source"],
+                        "excerpt_b": chunk_b["content"][:200],
+                    })
+                    conflict_detected = True
+                    break
+
+    return {"conflict": conflict_detected, "conflicting_pairs": conflicting_pairs}
+
+
 def get_uploaded_sources(org_id=None):
     try:
         conn = get_conn()
