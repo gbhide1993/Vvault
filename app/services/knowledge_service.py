@@ -224,13 +224,16 @@ def detect_conflicts(chunks):
 def get_uploaded_sources(org_id=None):
     try:
         conn = get_conn()
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
 
         cur.execute("""
-            SELECT DISTINCT source
+            SELECT source,
+                   MIN(created_at) AS uploaded_at,
+                   COUNT(*) AS chunk_count
             FROM knowledge_base
             WHERE org_id = %s
-            ORDER BY source;
+            GROUP BY source
+            ORDER BY MIN(created_at) DESC;
         """, (org_id,))
 
         rows = cur.fetchall()
@@ -238,11 +241,31 @@ def get_uploaded_sources(org_id=None):
         cur.close()
         conn.close()
 
-        return [r[0] for r in rows]
+        return [
+            {
+                "source": r["source"],
+                "uploaded_at": r["uploaded_at"].isoformat() if r["uploaded_at"] else None,
+                "chunk_count": r["chunk_count"],
+            }
+            for r in rows
+        ]
 
     except Exception as e:
         logger.error("get_uploaded_sources error: %s", str(e))
         return []
+
+
+def check_source_exists(source: str, org_id: str) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT COUNT(*) FROM knowledge_base WHERE source = %s AND org_id = %s",
+        (source, org_id),
+    )
+    count = cur.fetchone()[0]
+    cur.close()
+    conn.close()
+    return count > 0
 
 def delete_source(source: str, org_id: str) -> int:
     conn = get_conn()

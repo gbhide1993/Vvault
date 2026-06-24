@@ -1,5 +1,7 @@
 import logging
-from fastapi import APIRouter, UploadFile, File, HTTPException, Request
+from urllib.parse import unquote
+from fastapi import APIRouter, UploadFile, File, HTTPException, Request, Query
+from fastapi.responses import JSONResponse
 
 from app.services.knowledge_service import (
     chunk_text,
@@ -7,6 +9,7 @@ from app.services.knowledge_service import (
     extract_text_from_pdf,
     get_uploaded_sources,
     delete_source,
+    check_source_exists,
 )
 
 logger = logging.getLogger(__name__)
@@ -15,14 +18,33 @@ router = APIRouter(prefix="/knowledge", tags=["Knowledge"])
 
 
 # -----------------------------
-# UPLOAD KNOWLEDGE FILE (PDF + TXT)
+# UPLOAD KNOWLEDGE FILE (PDF + TXT + DOCX)
 # -----------------------------
 @router.post("/upload")
-async def upload_knowledge(request: Request, file: UploadFile = File(...)):
+async def upload_knowledge(
+    request: Request,
+    file: UploadFile = File(...),
+    replace: bool = Query(default=False),
+):
     org_id = request.state.username
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="Invalid file")
+
+    # Duplicate check
+    exists = check_source_exists(source=file.filename, org_id=org_id)
+    if exists and not replace:
+        return JSONResponse(
+            status_code=409,
+            content={
+                "detail": "duplicate",
+                "message": "A file with this name already exists.",
+                "source": file.filename,
+            },
+        )
+
+    if exists and replace:
+        delete_source(source=file.filename, org_id=org_id)
 
     content = await file.read()
 
@@ -56,7 +78,7 @@ async def upload_knowledge(request: Request, file: UploadFile = File(...)):
 
     return {
         "message": f"{len(chunks)} chunks stored",
-        "filename": file.filename
+        "filename": file.filename,
     }
 
 
@@ -69,13 +91,14 @@ def get_sources(request: Request):
         return {"error": str(e)}
 
 
-@router.delete("/sources/{source_name}")
+@router.delete("/sources/{source_name:path}")
 def delete_knowledge_source(source_name: str, request: Request):
     org_id = request.state.username
-    count = delete_source(source=source_name, org_id=org_id)
+    decoded_name = unquote(source_name)
+    count = delete_source(source=decoded_name, org_id=org_id)
     if count == 0:
         raise HTTPException(status_code=404, detail="Source not found")
-    return {"message": f"Deleted {count} chunks for '{source_name}'", "deleted_chunks": count}
+    return {"message": "Deleted", "source": decoded_name}
 
 
 # -----------------------------
