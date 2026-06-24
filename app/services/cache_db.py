@@ -44,13 +44,16 @@ def fetch_similar(embedding, threshold=0.85, org_id=None):
     return result
 
 
-def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", documents=None):
+def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", documents=None, conflict_detected=False, conflicting_pairs=None):
+    import json
     conn = get_conn()
     cur = conn.cursor()
 
     embedding_str = "[" + ",".join(map(str, embedding)) + "]"
 
     cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS documents text[]")
+    cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS conflict_detected boolean DEFAULT false")
+    cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS conflicting_pairs jsonb DEFAULT '[]'")
 
     query = """
     INSERT INTO qa_cache (
@@ -67,14 +70,22 @@ def insert_cache(question, question_hash, embedding, answer, confidence, status,
         source_text,
         run_id,
         org_id,
-        documents
+        documents,
+        conflict_detected,
+        conflicting_pairs
     )
-    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
 
     cur.execute(
         query,
-        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id, documents or []),
+        (
+            question, question_hash, embedding_str, answer, confidence, status, source,
+            justification, raw_context, matched_question, source_text, run_id, org_id,
+            documents or [],
+            conflict_detected or False,
+            json.dumps(conflicting_pairs or []),
+        ),
     )
 
     conn.commit()

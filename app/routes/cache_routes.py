@@ -157,6 +157,7 @@ def get_all_cache(request: Request, run_id: str = None):
             SELECT q.id, q.question, q.answer, q.confidence, q.source, q.source_text,
                    q.status, q.justification, q.raw_context, q.matched_question,
                    q.created_at, q.updated_at, q.documents,
+                   q.conflict_detected, q.conflicting_pairs,
                    COUNT(e.id) AS evidence_count
             FROM qa_cache q
             LEFT JOIN evidence e ON e.cache_id = q.id AND e.org_id = %s
@@ -185,6 +186,12 @@ def get_all_cache(request: Request, run_id: str = None):
 
         if item.get("documents") is None:
             item["documents"] = []
+
+        if item.get("conflict_detected") is None:
+            item["conflict_detected"] = False
+
+        if item.get("conflicting_pairs") is None:
+            item["conflicting_pairs"] = []
 
         result.append(item)
 

@@ -95,6 +95,8 @@ def set_cached_answer(question: str, data, org_id=None, embedding=None):
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
         documents=data.get("documents"),
+        conflict_detected=data.get("conflict_detected", False),
+        conflicting_pairs=data.get("conflicting_pairs", []),
     )
 
 

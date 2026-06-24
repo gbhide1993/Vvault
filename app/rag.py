@@ -19,7 +19,7 @@ from app.services.cache_service import (
 from app.services.dropdown_service import detect_dropdown_columns, map_answer_to_option
 from app.models.answer_model import AnswerMetadata
 from app.services.confidence_service import build_confidence
-from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_with_sources
+from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_with_sources, detect_conflicts
 from app.services.retrieval_service import retrieve_top_k_with_embedding
 from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 from app.services.embedding_service import generate_embedding
@@ -101,6 +101,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
             source_text = ""
             context = ""
             kb_results = []
+            conflict_result = {"conflict": False, "conflicting_pairs": []}
             _q_start = time.time()
             idx = row["index"]
             question = row["question"].strip()
@@ -181,6 +182,18 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                         for r in kb_results
                     ]
 
+                    # Conflict detection
+                    conflict_result = {"conflict": False, "conflicting_pairs": []}
+                    if len(kb_results) >= 2:
+                        try:
+                            conflict_result = detect_conflicts(kb_results)
+                        except Exception as e:
+                            logger.warning("Conflict detection failed (non-fatal): %s", e)
+
+                    conflict_note = ""
+                    if conflict_result["conflict"]:
+                        conflict_note = "NOTE: Conflicting information found in source documents. Surface the conflict in your answer rather than picking one side.\n\n"
+
                     prompt = f"""You are the Information Security Officer at a technology company responding to a SOC2 vendor questionnaire.
 
 STRICT RULES:
@@ -190,7 +203,7 @@ STRICT RULES:
 - Be direct and affirmative — assume controls exist unless context says otherwise
 - Use the provided context to give specific answers
 
-Context:
+{conflict_note}Context:
 {context}
 
 Question:
@@ -277,6 +290,8 @@ Answer:"""
                                     "run_id": run_id,
                                     "org_id": org_id,
                                     "documents": [r["source"] for r in kb_results],
+                                    "conflict_detected": conflict_result["conflict"],
+                                    "conflicting_pairs": conflict_result["conflicting_pairs"],
                                 },
                                 org_id=org_id,
                                 embedding=question_embedding,
@@ -308,6 +323,8 @@ Answer:"""
                 "raw_context": context,
                 "documents": [r["source"] for r in kb_results] if kb_results else [],
                 "source_text": source_text,
+                "conflict_detected": conflict_result["conflict"],
+                "conflicting_pairs": conflict_result["conflicting_pairs"],
             }
 
             src = answers[idx].get("source", "fallback")

@@ -164,6 +164,51 @@ def retrieve_knowledge_with_sources(question, top_k=3, org_id=None):
     return [{"content": r["content"], "source": r["source"], "similarity": float(r["similarity"])} for r in results]
 
 
+def detect_conflicts(chunks):
+    import requests
+    if len(chunks) < 2:
+        return {"conflict": False, "conflicting_pairs": []}
+
+    OLLAMA_URL = "http://ollama:11434/api/generate"
+    MODEL = "qwen2:1.5b"
+    conflicting_pairs = []
+
+    for i in range(len(chunks)):
+        for j in range(i + 1, len(chunks)):
+            chunk_a = chunks[i]
+            chunk_b = chunks[j]
+            prompt = (
+                f"Do these two statements contradict each other?\n"
+                f"Answer only YES or NO.\n\n"
+                f"Statement 1: {chunk_a['content'][:300]}\n"
+                f"Statement 2: {chunk_b['content'][:300]}\n\n"
+                f"Answer:"
+            )
+            try:
+                resp = requests.post(
+                    OLLAMA_URL,
+                    json={
+                        "model": MODEL,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.0, "num_predict": 5},
+                    },
+                    timeout=30,
+                )
+                answer = resp.json().get("response", "").strip().upper()
+                if answer.startswith("YES"):
+                    conflicting_pairs.append({
+                        "source_a": chunk_a["source"],
+                        "excerpt_a": chunk_a["content"][:200],
+                        "source_b": chunk_b["source"],
+                        "excerpt_b": chunk_b["content"][:200],
+                    })
+            except Exception as e:
+                logger.warning("detect_conflicts Ollama call failed: %s", e)
+
+    return {"conflict": len(conflicting_pairs) > 0, "conflicting_pairs": conflicting_pairs}
+
+
 def get_uploaded_sources(org_id=None):
     try:
         conn = get_conn()
