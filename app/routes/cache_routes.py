@@ -157,6 +157,7 @@ def get_all_cache(request: Request, run_id: str = None):
             SELECT q.id, q.question, q.answer, q.confidence, q.source, q.source_text,
                    q.status, q.justification, q.raw_context, q.matched_question,
                    q.created_at, q.updated_at,
+                   q.has_stale_sources, q.stale_sources,
                    COUNT(e.id) AS evidence_count
             FROM qa_cache q
             LEFT JOIN evidence e ON e.cache_id = q.id AND e.org_id = %s
@@ -182,6 +183,9 @@ def get_all_cache(request: Request, run_id: str = None):
 
         if not item.get("confidence"):
             item["confidence"] = 0
+
+        item["has_stale_sources"] = item.get("has_stale_sources", False)
+        item["stale_sources"] = item.get("stale_sources") or []
 
         result.append(item)
 

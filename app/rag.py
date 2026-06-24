@@ -19,7 +19,7 @@ from app.services.cache_service import (
 from app.services.dropdown_service import detect_dropdown_columns, map_answer_to_option
 from app.models.answer_model import AnswerMetadata
 from app.services.confidence_service import build_confidence
-from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding
+from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_rows_with_embedding, check_source_freshness
 from app.services.retrieval_service import retrieve_top_k_with_embedding
 from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 from app.services.embedding_service import generate_embedding
@@ -100,6 +100,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
         for row in rows:
             source_text = ""
             context = ""
+            freshness_result = {"has_stale": False, "stale_sources": []}
             _q_start = time.time()
             idx = row["index"]
             question = row["question"].strip()
@@ -155,6 +156,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                 else:
                     # PATH C — LLM (1 Ollama call, reuses question_embedding)
                     kb_context = ""
+                    kb_results = []
                     if question_embedding is not None:
                         try:
                             kb_context = retrieve_knowledge_with_embedding(
@@ -162,11 +164,23 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                             )
                         except Exception as e:
                             logger.error("KB retrieval failed for question %d: %s", idx, e)
+                        try:
+                            kb_results = retrieve_knowledge_rows_with_embedding(
+                                question_embedding, org_id=org_id
+                            )
+                        except Exception as e:
+                            logger.error("KB rows retrieval failed for question %d: %s", idx, e)
                     else:
                         try:
                             kb_context = retrieve_knowledge(question, org_id=org_id)
                         except Exception as e:
                             logger.error("KB retrieval failed for question %d: %s", idx, e)
+
+                    try:
+                        freshness_result = check_source_freshness(kb_results, org_id)
+                    except Exception as e:
+                        logger.error("Freshness check failed for question %d: %s", idx, e)
+                        freshness_result = {"has_stale": False, "stale_sources": []}
 
                     retrieve_top_k_with_embedding(question_embedding) if question_embedding is not None else ""
 
@@ -254,6 +268,8 @@ Answer:"""
                                     "source_text": source_text,
                                     "run_id": run_id,
                                     "org_id": org_id,
+                                    "has_stale_sources": freshness_result["has_stale"],
+                                    "stale_sources": freshness_result["stale_sources"],
                                 },
                                 org_id=org_id,
                                 embedding=question_embedding,
@@ -285,6 +301,8 @@ Answer:"""
                 "raw_context": context,
                 "documents": [],
                 "source_text": source_text,
+                "has_stale_sources": freshness_result["has_stale"],
+                "stale_sources": freshness_result["stale_sources"],
             }
 
             src = answers[idx].get("source", "fallback")

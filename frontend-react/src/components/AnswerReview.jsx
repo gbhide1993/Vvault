@@ -315,6 +315,11 @@ export default function AnswerReview() {
                     <TableCell className="text-slate-200">{item.question || "-"}</TableCell>
                     <TableCell className="text-slate-400">
                       <div>{item.answer || "No relevant information available."}</div>
+                      {item.has_stale_sources && (
+                        <span style={{ background: '#92400e', color: '#fef3c7', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, marginLeft: 4 }}>
+                          ⏰ Stale Source
+                        </span>
+                      )}
                       {item.source === 'llm' && item.source_text && (
                         <div className="mt-3">
                           <button onClick={() => toggleExplanation(item.id)} className="text-[10px] uppercase tracking-wider bg-slate-800 text-slate-300 border border-slate-700 px-2 py-1 rounded hover:bg-slate-700 transition-none">
@@ -323,6 +328,18 @@ export default function AnswerReview() {
                           {expandedExplanation.has(item.id) && (
                             <div className="mt-2 text-xs text-slate-400 bg-slate-950 p-3 rounded-lg border border-slate-800 leading-relaxed">
                               Based on: {item.source_text.substring(0, 150)}...
+                              {item.has_stale_sources && Array.isArray(item.stale_sources) && item.stale_sources.length > 0 && (
+                                <div className="mt-3">
+                                  <p style={{ color: '#fb923c', fontSize: 10, fontWeight: 600, marginBottom: 6 }}>Stale Sources Detected</p>
+                                  {item.stale_sources.map((s, si) => (
+                                    <div key={si} style={{ borderLeft: '2px solid #f97316', paddingLeft: 8, marginBottom: 4 }}>
+                                      <p style={{ color: '#888', fontSize: 11, fontStyle: 'italic', margin: 0 }}>
+                                        {s.source} — uploaded {s.age_days} days ago
+                                      </p>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>

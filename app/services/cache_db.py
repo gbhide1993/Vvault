@@ -1,4 +1,5 @@
 import os
+import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -44,7 +45,27 @@ def fetch_similar(embedding, threshold=0.85, org_id=None):
     return result
 
 
-def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default"):
+def _ensure_freshness_columns():
+    """Ensure has_stale_sources and stale_sources columns exist on qa_cache."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS has_stale_sources boolean DEFAULT false;")
+        cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS stale_sources jsonb DEFAULT '[]';")
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("_ensure_freshness_columns failed: %s", e)
+
+
+def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", has_stale_sources=False, stale_sources=None):
+    if stale_sources is None:
+        stale_sources = []
+
+    _ensure_freshness_columns()
+
     conn = get_conn()
     cur = conn.cursor()
 
@@ -64,14 +85,16 @@ def insert_cache(question, question_hash, embedding, answer, confidence, status,
         matched_question,
         source_text,
         run_id,
-        org_id
+        org_id,
+        has_stale_sources,
+        stale_sources
     )
-    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
 
     cur.execute(
         query,
-        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id),
+        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id, has_stale_sources, json.dumps(stale_sources)),
     )
 
     conn.commit()
