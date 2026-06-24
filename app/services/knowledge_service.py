@@ -165,48 +165,60 @@ def retrieve_knowledge_with_sources(question, top_k=3, org_id=None):
 
 
 def detect_conflicts(chunks):
-    import requests
+    HARD_CONTRADICTIONS = [
+        # colors
+        ("white", "black"), ("white", "dark"),
+        ("black", "white"),
+        # access
+        ("never", "always"), ("never", "immediately"),
+        ("never", "automatically"), ("prohibited", "permitted"),
+        ("not permitted", "permitted"), ("not allowed", "allowed"),
+        ("mandatory", "optional"), ("required", "optional"),
+        ("no exceptions", "optional"), ("must not", "must"),
+        # timing
+        ("before", "after"), ("prior to", "upon"),
+        ("immediately", "never"), ("first", "last"),
+        # approval
+        ("human review required", "automatically"),
+        ("sign-off required", "no sign-off"),
+        ("approved", "not approved"),
+        # boolean
+        ("true", "false"), ("yes", "no"),
+        ("enabled", "disabled"), ("active", "inactive"),
+    ]
+
     if len(chunks) < 2:
         return {"conflict": False, "conflicting_pairs": []}
 
-    OLLAMA_URL = "http://ollama:11434/api/generate"
-    MODEL = "qwen2:1.5b"
     conflicting_pairs = []
+    conflict_detected = False
 
     for i in range(len(chunks)):
         for j in range(i + 1, len(chunks)):
             chunk_a = chunks[i]
             chunk_b = chunks[j]
-            prompt = (
-                f"Do these two statements contradict each other?\n"
-                f"Answer only YES or NO.\n\n"
-                f"Statement 1: {chunk_a['content'][:300]}\n"
-                f"Statement 2: {chunk_b['content'][:300]}\n\n"
-                f"Answer:"
-            )
-            try:
-                resp = requests.post(
-                    OLLAMA_URL,
-                    json={
-                        "model": MODEL,
-                        "prompt": prompt,
-                        "stream": False,
-                        "options": {"temperature": 0.0, "num_predict": 5},
-                    },
-                    timeout=30,
-                )
-                answer = resp.json().get("response", "").strip().upper()
-                if answer.startswith("YES"):
+            a = chunk_a["content"].lower()
+            b = chunk_b["content"].lower()
+
+            words_a = set(w for w in re.findall(r"[a-z]+", a) if len(w) > 4)
+            words_b = set(w for w in re.findall(r"[a-z]+", b) if len(w) > 4)
+            shared = words_a & words_b
+
+            if len(shared) < 2:
+                continue
+
+            for word_a, word_b in HARD_CONTRADICTIONS:
+                if (word_a in a and word_b in b) or (word_b in a and word_a in b):
                     conflicting_pairs.append({
                         "source_a": chunk_a["source"],
                         "excerpt_a": chunk_a["content"][:200],
                         "source_b": chunk_b["source"],
                         "excerpt_b": chunk_b["content"][:200],
                     })
-            except Exception as e:
-                logger.warning("detect_conflicts Ollama call failed: %s", e)
+                    conflict_detected = True
+                    break
 
-    return {"conflict": len(conflicting_pairs) > 0, "conflicting_pairs": conflicting_pairs}
+    return {"conflict": conflict_detected, "conflicting_pairs": conflicting_pairs}
 
 
 def get_uploaded_sources(org_id=None):

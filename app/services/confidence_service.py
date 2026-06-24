@@ -11,5 +11,8 @@ def build_confidence(source: str, context: str = None):
             return 0.75, "Generated using relevant company knowledge context"
         else:
             return 0.55, "Generated with limited context"
-    
+
+    if source == "evidence_gap":
+        return 0.0, "No supporting document found in knowledge base"
+
     return 0.5, "Default confidence"
