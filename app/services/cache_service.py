@@ -94,6 +94,7 @@ def set_cached_answer(question: str, data, org_id=None, embedding=None):
         source_text=data.get("source_text"),
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
+        documents=data.get("documents"),
     )
 
 

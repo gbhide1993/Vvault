@@ -44,11 +44,13 @@ def fetch_similar(embedding, threshold=0.85, org_id=None):
     return result
 
 
-def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default"):
+def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", documents=None):
     conn = get_conn()
     cur = conn.cursor()
 
     embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+
+    cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS documents text[]")
 
     query = """
     INSERT INTO qa_cache (
@@ -64,14 +66,15 @@ def insert_cache(question, question_hash, embedding, answer, confidence, status,
         matched_question,
         source_text,
         run_id,
-        org_id
+        org_id,
+        documents
     )
-    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
 
     cur.execute(
         query,
-        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id),
+        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id, documents or []),
     )
 
     conn.commit()

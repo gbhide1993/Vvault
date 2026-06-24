@@ -156,7 +156,7 @@ def get_all_cache(request: Request, run_id: str = None):
     cur.execute("""
             SELECT q.id, q.question, q.answer, q.confidence, q.source, q.source_text,
                    q.status, q.justification, q.raw_context, q.matched_question,
-                   q.created_at, q.updated_at,
+                   q.created_at, q.updated_at, q.documents,
                    COUNT(e.id) AS evidence_count
             FROM qa_cache q
             LEFT JOIN evidence e ON e.cache_id = q.id AND e.org_id = %s
@@ -176,12 +176,15 @@ def get_all_cache(request: Request, run_id: str = None):
     for row in rows:
         item = dict(zip(columns, row))
 
-        # 🔥 ensure defaults
+        # ensure defaults
         if not item.get("status"):
             item["status"] = "pending"
 
         if not item.get("confidence"):
             item["confidence"] = 0
+
+        if item.get("documents") is None:
+            item["documents"] = []
 
         result.append(item)
 

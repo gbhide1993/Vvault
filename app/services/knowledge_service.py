@@ -138,6 +138,32 @@ def retrieve_knowledge(question, top_k=3, org_id=None):
     return "\n\n".join([r["content"] for r in results])
 
 
+def retrieve_knowledge_with_sources(question, top_k=3, org_id=None):
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    embedding = generate_embedding(question)
+    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+
+    query = """
+    SELECT content,
+           source,
+           1 - (embedding <=> %s::vector) AS similarity
+    FROM knowledge_base
+    WHERE org_id = %s
+    ORDER BY similarity DESC
+    LIMIT %s;
+    """
+
+    cur.execute(query, (embedding_str, org_id, top_k))
+    results = cur.fetchall()
+
+    cur.close()
+    conn.close()
+
+    return [{"content": r["content"], "source": r["source"], "similarity": float(r["similarity"])} for r in results]
+
+
 def get_uploaded_sources(org_id=None):
     try:
         conn = get_conn()

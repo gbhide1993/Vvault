@@ -292,6 +292,7 @@ export default function AnswerReview() {
             <TableHead className="w-1/4">Question</TableHead>
             <TableHead className="w-1/3">Answer</TableHead>
             <TableHead className="text-center">Confidence</TableHead>
+            <TableHead className="text-center">Sources</TableHead>
             <TableHead className="text-center cursor-pointer hover:bg-slate-800 transition-none select-none group" onClick={toggleStatusSort} title="Sort by status">
               <div className="flex items-center justify-center gap-2">
                 Status <span className="text-slate-600 group-hover:text-slate-400">{statusSortDir === 'asc' ? '↑' : statusSortDir === 'desc' ? '↓' : '↕'}</span>
@@ -303,7 +304,7 @@ export default function AnswerReview() {
           <TableBody>
             {paginatedData.length === 0 ? (
               <TableRow>
-                <TableCell colSpan="6" className="p-12 text-center text-slate-500">No data found matching your filters.</TableCell>
+                <TableCell colSpan="7" className="p-12 text-center text-slate-500">No data found matching your filters.</TableCell>
               </TableRow>
             ) : (
               paginatedData.map(item => (
@@ -334,6 +335,24 @@ export default function AnswerReview() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-center">
+                      {Array.isArray(item.documents) && item.documents.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 justify-center">
+                          {item.documents.map((doc, i) => {
+                            const chunk = (item.evidence || []).find(e => e.source === doc)?.chunk || doc;
+                            return (
+                              <span
+                                key={i}
+                                title={chunk}
+                                className="inline-block max-w-30 truncate text-[10px] bg-slate-700 text-slate-300 border border-slate-600 rounded px-2 py-0.5 cursor-default"
+                              >
+                                {doc}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-center">
                       <Badge variant={item.status === 'approved' ? 'success' : item.status === 'rejected' ? 'danger' : 'warning'}>
                         {item.status || "pending"}
                       </Badge>
@@ -346,7 +365,7 @@ export default function AnswerReview() {
                   </TableRow>
                   {expandedEvidence.has(item.id) && (
                     <tr className="bg-slate-900/30">
-                      <td colSpan="6" className="p-0">
+                      <td colSpan="7" className="p-0">
                         <EvidencePanel cacheId={item.id} getAuthHeaders={getAuthHeaders} onEvidenceChange={() => fetchPreviewData(currentRunId)} />
                       </td>
                     </tr>
