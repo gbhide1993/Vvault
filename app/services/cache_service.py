@@ -94,6 +94,7 @@ def set_cached_answer(question: str, data, org_id=None, embedding=None):
         source_text=data.get("source_text"),
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
+        kb_sources=data.get("kb_sources", []),
     )
 
 
@@ -153,4 +154,5 @@ def set_cached_answer_with_embedding(question, question_embedding, data):
         source_text=data.get("source_text") if isinstance(data, dict) else None,
         run_id=data.get("run_id") if isinstance(data, dict) else None,
         org_id=org_id,
+        kb_sources=data.get("kb_sources", []) if isinstance(data, dict) else [],
     )

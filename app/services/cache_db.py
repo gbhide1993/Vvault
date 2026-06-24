@@ -44,7 +44,26 @@ def fetch_similar(embedding, threshold=0.85, org_id=None):
     return result
 
 
-def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default"):
+def _ensure_kb_sources_column():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS kb_sources jsonb DEFAULT '[]';")
+        conn.commit()
+        cur.close()
+        conn.close()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error("_ensure_kb_sources_column failed: %s", e)
+
+
+def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", kb_sources=None):
+    if kb_sources is None:
+        kb_sources = []
+
+    _ensure_kb_sources_column()
+
+    import json
     conn = get_conn()
     cur = conn.cursor()
 
@@ -64,14 +83,15 @@ def insert_cache(question, question_hash, embedding, answer, confidence, status,
         matched_question,
         source_text,
         run_id,
-        org_id
+        org_id,
+        kb_sources
     )
-    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
 
     cur.execute(
         query,
-        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id),
+        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id, json.dumps(kb_sources)),
     )
 
     conn.commit()

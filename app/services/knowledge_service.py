@@ -196,6 +196,25 @@ def retrieve_knowledge_with_embedding(question_embedding, top_k=3, org_id=None):
     return "\n\n".join([r["content"] for r in results])
 
 
+def retrieve_knowledge_rows_with_embedding(question_embedding, top_k=3, org_id=None):
+    """Return full rows (content + source) for the top-k KB matches."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    embedding_str = "[" + ",".join(map(str, question_embedding)) + "]"
+    cur.execute("""
+    SELECT content, source, created_at,
+           1 - (embedding <=> %s::vector) AS similarity
+    FROM knowledge_base
+    WHERE org_id = %s
+    ORDER BY similarity DESC
+    LIMIT %s;
+    """, (embedding_str, org_id, top_k))
+    results = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in results]
+
+
 def retrieve_knowledge_by_embedding(embedding: list, top_k: int = 3, org_id: str = None) -> str:
     from app.services.cache_db import get_conn
     from psycopg2.extras import RealDictCursor
