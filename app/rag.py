@@ -101,6 +101,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
             source_text = ""
             context = ""
             freshness_result = {"has_stale": False, "stale_sources": []}
+            conflict_result = {"conflict": False, "conflicting_pairs": []}
             _q_start = time.time()
             idx = row["index"]
             question = row["question"].strip()
@@ -175,6 +176,12 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                             kb_context = retrieve_knowledge(question, org_id=org_id)
                         except Exception as e:
                             logger.error("KB retrieval failed for question %d: %s", idx, e)
+
+                    try:
+                        from app.services.knowledge_service import detect_conflicts
+                        conflict_result = detect_conflicts(kb_results)
+                    except Exception as e:
+                        logger.error("Conflict detection failed for question %d: %s", idx, e)
 
                     try:
                         freshness_result = check_source_freshness(kb_results, org_id)
@@ -270,6 +277,8 @@ Answer:"""
                                     "org_id": org_id,
                                     "has_stale_sources": freshness_result["has_stale"],
                                     "stale_sources": freshness_result["stale_sources"],
+                                    "conflict_detected": conflict_result["conflict"],
+                                    "conflicting_pairs": conflict_result["conflicting_pairs"],
                                 },
                                 org_id=org_id,
                                 embedding=question_embedding,
@@ -303,6 +312,8 @@ Answer:"""
                 "source_text": source_text,
                 "has_stale_sources": freshness_result["has_stale"],
                 "stale_sources": freshness_result["stale_sources"],
+                "conflict_detected": conflict_result["conflict"],
+                "conflicting_pairs": conflict_result["conflicting_pairs"],
             }
 
             src = answers[idx].get("source", "fallback")

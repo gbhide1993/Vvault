@@ -158,6 +158,7 @@ def get_all_cache(request: Request, run_id: str = None):
                    q.status, q.justification, q.raw_context, q.matched_question,
                    q.created_at, q.updated_at,
                    q.has_stale_sources, q.stale_sources,
+                   q.conflict_detected, q.conflicting_pairs,
                    COUNT(e.id) AS evidence_count
             FROM qa_cache q
             LEFT JOIN evidence e ON e.cache_id = q.id AND e.org_id = %s
@@ -186,6 +187,8 @@ def get_all_cache(request: Request, run_id: str = None):
 
         item["has_stale_sources"] = item.get("has_stale_sources", False)
         item["stale_sources"] = item.get("stale_sources") or []
+        item["conflict_detected"] = item.get("conflict_detected", False)
+        item["conflicting_pairs"] = item.get("conflicting_pairs") or []
 
         result.append(item)
 
