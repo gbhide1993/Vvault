@@ -492,11 +492,7 @@ export default function SetupRun({ onNavigate }) {
       const res = await fetch(`${BASE_URL}/knowledge/sources`, { headers: getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
-        // Normalise: API now returns [{source, uploaded_at, chunk_count}]
-        // Extract just the source name so existing rendering (file string) still works
-        const files = (data || []).map(item =>
-          typeof item === 'string' ? item : item.source
-        );
+        const files = (data || []).map(item => typeof item === 'string' ? item : item.source);
         setKnowledgeFiles(files);
       }
     } catch (err) {

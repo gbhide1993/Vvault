@@ -100,6 +100,7 @@ export default function AnswerReview() {
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [expandedEvidence, setExpandedEvidence] = useState(new Set());
   const [expandedExplanation, setExpandedExplanation] = useState(new Set());
+  const [expandedStale, setExpandedStale] = useState(new Set());
   const [expandedSource, setExpandedSource] = useState({});
   const [expandedConflict, setExpandedConflict] = useState(new Set());
 
@@ -123,8 +124,7 @@ export default function AnswerReview() {
       const res = await fetch(`${BASE_URL}/cache/all?run_id=${runId}`, { headers: getAuthHeaders() });
       if (res.ok) {
         const result = await res.json();
-        const rows = Array.isArray(result) ? result : [];
-        setData(rows);
+        setData(Array.isArray(result) ? result : []);
         setCurrentPage(1);
         setSelectedIds(new Set());
       }
@@ -187,6 +187,12 @@ export default function AnswerReview() {
     const newSet = new Set(expandedExplanation);
     newSet.has(id) ? newSet.delete(id) : newSet.add(id);
     setExpandedExplanation(newSet);
+  };
+
+  const toggleStale = (id) => {
+    const newSet = new Set(expandedStale);
+    newSet.has(id) ? newSet.delete(id) : newSet.add(id);
+    setExpandedStale(newSet);
   };
 
   const toggleConflict = (id) => {
@@ -333,20 +339,14 @@ export default function AnswerReview() {
                           {expandedExplanation.has(item.id) && (
                             <div className="mt-2 text-xs text-slate-400 bg-slate-950 p-3 rounded-lg border border-slate-800 leading-relaxed">
                               Based on: {item.source_text.substring(0, 150)}...
-                              {item.conflict_detected && Array.isArray(item.conflicting_pairs) && item.conflicting_pairs.length > 0 && (
+                              {item.has_stale_sources && Array.isArray(item.stale_sources) && item.stale_sources.length > 0 && (
                                 <div className="mt-3">
-                                  <p style={{ color: '#fef08a', fontSize: 10, fontWeight: 600, marginBottom: 6 }}>Source Conflict Detected</p>
-                                  {item.conflicting_pairs.map((pair, pi) => (
-                                    <div key={pi} className="mb-3">
-                                      <p style={{ color: '#aaa', fontSize: 10, marginBottom: 4 }}>
-                                        {pair.source_a} <span style={{ color: '#ef4444' }}>vs</span> {pair.source_b}
+                                  <p style={{ color: '#fb923c', fontSize: 10, fontWeight: 600, marginBottom: 6 }}>Stale Sources Detected</p>
+                                  {item.stale_sources.map((s, si) => (
+                                    <div key={si} style={{ borderLeft: '2px solid #f97316', paddingLeft: 8, marginBottom: 4 }}>
+                                      <p style={{ color: '#888', fontSize: 11, fontStyle: 'italic', margin: 0 }}>
+                                        {s.source} — uploaded {s.age_days} days ago
                                       </p>
-                                      <div style={{ borderLeft: '2px solid #ef4444', paddingLeft: 8, marginBottom: 4 }}>
-                                        <p style={{ color: '#888', fontSize: 11, fontStyle: 'italic', margin: 0 }}>{pair.excerpt_a}</p>
-                                      </div>
-                                      <div style={{ borderLeft: '2px solid #ef4444', paddingLeft: 8 }}>
-                                        <p style={{ color: '#888', fontSize: 11, fontStyle: 'italic', margin: 0 }}>{pair.excerpt_b}</p>
-                                      </div>
                                     </div>
                                   ))}
                                 </div>
@@ -370,6 +370,14 @@ export default function AnswerReview() {
                           ⚠ Conflict {expandedConflict.has(item.id) ? '▲' : '▼'}
                         </button>
                       )}
+                      {item.has_stale_sources && (
+                        <button
+                          onClick={() => toggleStale(item.id)}
+                          style={{ background: '#92400e', color: '#fef3c7', fontSize: 10, borderRadius: 4, padding: '2px 6px', display: 'inline-block', marginBottom: 4, marginLeft: 4, cursor: 'pointer', border: '1px solid #b45309' }}
+                        >
+                          ⏰ Stale {expandedStale.has(item.id) ? '▲' : '▼'}
+                        </button>
+                      )}
                       {(() => {
                         const docs = Array.isArray(item.documents)
                           ? item.documents
@@ -383,20 +391,11 @@ export default function AnswerReview() {
                           <div className="flex flex-col items-center gap-1">
                             <div className="flex flex-wrap gap-1 justify-center">
                               {docs.map((doc, i) => {
-                                const evidenceChunk = (item.evidence || []).find(e => e.source === doc)?.chunk;
-                                const rawChunk = contextChunks[i] || '';
-                                const fullText = evidenceChunk || rawChunk;
-                                const excerpt = fullText
-                                  ? fullText.split('. ').slice(0, 2).join('. ').trim()
-                                  : null;
                                 const isExpanded = expandedIdx === i;
                                 return (
                                   <span
                                     key={i}
-                                    onClick={() => setExpandedSource(prev => ({
-                                      ...prev,
-                                      [item.id]: isExpanded ? null : i
-                                    }))}
+                                    onClick={() => setExpandedSource(prev => ({ ...prev, [item.id]: isExpanded ? null : i }))}
                                     className="inline-block max-w-30 truncate text-[10px] bg-slate-700 text-slate-300 border border-slate-600 rounded px-2 py-0.5 cursor-pointer hover:bg-slate-600"
                                   >
                                     {doc}
@@ -405,12 +404,8 @@ export default function AnswerReview() {
                               })}
                             </div>
                             {expandedIdx != null && docs[expandedIdx] && (() => {
-                              const evidenceChunk = (item.evidence || []).find(e => e.source === docs[expandedIdx])?.chunk;
                               const rawChunk = contextChunks[expandedIdx] || '';
-                              const fullText = evidenceChunk || rawChunk;
-                              const excerpt = fullText
-                                ? fullText.split('. ').slice(0, 2).join('. ').trim()
-                                : null;
+                              const excerpt = rawChunk ? rawChunk.split('. ').slice(0, 2).join('. ').trim() : null;
                               if (!excerpt) return null;
                               return (
                                 <div style={{ borderLeft: '2px solid #22c55e', paddingLeft: 8, marginTop: 4, textAlign: 'left' }}>
@@ -458,6 +453,22 @@ export default function AnswerReview() {
                               <div style={{ borderLeft: '2px solid #ef4444', paddingLeft: 10 }}>
                                 <p style={{ color: '#ccc', fontSize: 11, fontStyle: 'italic', margin: 0 }}>{pair.excerpt_b}</p>
                               </div>
+                            </div>
+                          ))}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {expandedStale.has(item.id) && Array.isArray(item.stale_sources) && item.stale_sources.length > 0 && (
+                    <tr className="bg-amber-950/20">
+                      <td colSpan="7" className="p-0">
+                        <div className="px-6 py-4 border-b border-amber-900/40">
+                          <p style={{ color: '#fb923c', fontSize: 11, fontWeight: 600, marginBottom: 10 }}>⏰ Stale Sources Detected</p>
+                          {item.stale_sources.map((s, si) => (
+                            <div key={si} style={{ borderLeft: '2px solid #f97316', paddingLeft: 10, marginBottom: 6 }}>
+                              <p style={{ color: '#ccc', fontSize: 11, fontStyle: 'italic', margin: 0 }}>
+                                <span style={{ color: '#fef3c7' }}>{s.source}</span> — uploaded {s.age_days} days ago
+                              </p>
                             </div>
                           ))}
                         </div>

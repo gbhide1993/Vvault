@@ -94,7 +94,8 @@ def set_cached_answer(question: str, data, org_id=None, embedding=None):
         source_text=data.get("source_text"),
         run_id=data.get("run_id"),
         org_id=data.get("org_id", "default"),
-        documents=data.get("documents"),
+        has_stale_sources=data.get("has_stale_sources", False),
+        stale_sources=data.get("stale_sources", []),
         conflict_detected=data.get("conflict_detected", False),
         conflicting_pairs=data.get("conflicting_pairs", []),
     )
@@ -156,4 +157,8 @@ def set_cached_answer_with_embedding(question, question_embedding, data):
         source_text=data.get("source_text") if isinstance(data, dict) else None,
         run_id=data.get("run_id") if isinstance(data, dict) else None,
         org_id=org_id,
+        has_stale_sources=data.get("has_stale_sources", False) if isinstance(data, dict) else False,
+        stale_sources=data.get("stale_sources", []) if isinstance(data, dict) else [],
+        conflict_detected=data.get("conflict_detected", False) if isinstance(data, dict) else False,
+        conflicting_pairs=data.get("conflicting_pairs", []) if isinstance(data, dict) else [],
     )

@@ -1,4 +1,5 @@
 import logging
+from datetime import datetime
 from app.services.cache_db import get_conn
 from app.services.embedding_service import generate_embedding
 from psycopg2.extras import RealDictCursor
@@ -302,6 +303,26 @@ def retrieve_knowledge_with_embedding(question_embedding, top_k=3, org_id=None):
     return "\n\n".join([r["content"] for r in results])
 
 
+def retrieve_knowledge_rows_with_embedding(embedding: list, top_k: int = 3, org_id: str = None) -> list:
+    """Returns structured list of dicts with content, source, similarity — for freshness checking."""
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+        cur.execute("""
+        SELECT content, source, 1 - (embedding <=> %s::vector) AS similarity
+        FROM knowledge_base WHERE org_id = %s
+        ORDER BY similarity DESC LIMIT %s;
+        """, (embedding_str, org_id, top_k))
+        results = cur.fetchall()
+        cur.close()
+        conn.close()
+        return [dict(r) for r in results] if results else []
+    except Exception as e:
+        logger.error("retrieve_knowledge_rows_with_embedding failed: %s", e)
+        return []
+
+
 def retrieve_knowledge_by_embedding(embedding: list, top_k: int = 3, org_id: str = None) -> str:
     from app.services.cache_db import get_conn
     from psycopg2.extras import RealDictCursor
@@ -324,3 +345,58 @@ def retrieve_knowledge_by_embedding(embedding: list, top_k: int = 3, org_id: str
         import logging
         logging.getLogger(__name__).error("retrieve_knowledge_by_embedding failed: %s", e)
         return ""
+
+
+def check_source_freshness(kb_results, org_id):
+    """
+    Takes list of dicts: [{"content": "...", "source": "filename.pdf", "similarity": 0.91}]
+    Checks upload age for each unique source. Returns stale sources (> 90 days old).
+    """
+    stale_sources = []
+    seen = set()
+
+    try:
+        conn = get_conn()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        for item in kb_results:
+            source = item.get("source")
+            if not source or source in seen:
+                continue
+            seen.add(source)
+
+            try:
+                cur.execute(
+                    """
+                    SELECT source, MIN(created_at) as first_uploaded
+                    FROM knowledge_base WHERE source = %s AND org_id = %s
+                    GROUP BY source;
+                    """,
+                    (source, org_id),
+                )
+                row = cur.fetchone()
+                if row and row["first_uploaded"]:
+                    first_uploaded = row["first_uploaded"]
+                    # Ensure timezone-naive for comparison
+                    if hasattr(first_uploaded, "tzinfo") and first_uploaded.tzinfo is not None:
+                        first_uploaded = first_uploaded.replace(tzinfo=None)
+                    age_days = (datetime.utcnow() - first_uploaded).days
+                    if age_days > 90:
+                        stale_sources.append({
+                            "source": source,
+                            "uploaded_at": row["first_uploaded"].strftime("%Y-%m-%d"),
+                            "age_days": age_days,
+                        })
+            except Exception as e:
+                logger.error("check_source_freshness query failed for source %s: %s", source, e)
+
+        cur.close()
+        conn.close()
+
+    except Exception as e:
+        logger.error("check_source_freshness connection failed: %s", e)
+
+    return {
+        "has_stale": len(stale_sources) > 0,
+        "stale_sources": stale_sources,
+    }

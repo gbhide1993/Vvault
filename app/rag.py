@@ -19,7 +19,7 @@ from app.services.cache_service import (
 from app.services.dropdown_service import detect_dropdown_columns, map_answer_to_option
 from app.models.answer_model import AnswerMetadata
 from app.services.confidence_service import build_confidence
-from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_with_sources, detect_conflicts
+from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_rows_with_embedding, check_source_freshness
 from app.services.retrieval_service import retrieve_top_k_with_embedding
 from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 from app.services.embedding_service import generate_embedding
@@ -100,7 +100,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
         for row in rows:
             source_text = ""
             context = ""
-            kb_results = []
+            freshness_result = {"has_stale": False, "stale_sources": []}
             conflict_result = {"conflict": False, "conflicting_pairs": []}
             _q_start = time.time()
             idx = row["index"]
@@ -156,43 +156,50 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
 
                 else:
                     # PATH C — LLM (1 Ollama call, reuses question_embedding)
-                    kb_results = []
                     kb_context = ""
+                    kb_results = []
                     if question_embedding is not None:
                         try:
-                            kb_results = retrieve_knowledge_with_sources(
-                                question, top_k=3, org_id=org_id
+                            kb_context = retrieve_knowledge_with_embedding(
+                                question_embedding, org_id=org_id
                             )
-                            kb_context = "\n\n".join(r["content"] for r in kb_results)
                         except Exception as e:
                             logger.error("KB retrieval failed for question %d: %s", idx, e)
+                        try:
+                            kb_results = retrieve_knowledge_rows_with_embedding(
+                                question_embedding, org_id=org_id
+                            )
+                        except Exception as e:
+                            logger.error("KB rows retrieval failed for question %d: %s", idx, e)
                     else:
                         try:
                             kb_context = retrieve_knowledge(question, org_id=org_id)
                         except Exception as e:
                             logger.error("KB retrieval failed for question %d: %s", idx, e)
 
+                    try:
+                        from app.services.knowledge_service import detect_conflicts
+                        conflict_result = detect_conflicts(kb_results)
+                    except Exception as e:
+                        logger.error("Conflict detection failed for question %d: %s", idx, e)
+
+                    try:
+                        freshness_result = check_source_freshness(kb_results, org_id)
+                    except Exception as e:
+                        logger.error("Freshness check failed for question %d: %s", idx, e)
+                        freshness_result = {"has_stale": False, "stale_sources": []}
+
                     retrieve_top_k_with_embedding(question_embedding) if question_embedding is not None else ""
 
                     context = kb_context[:2000] if kb_context else ""
                     source_text = (kb_context or "")[:200].strip()
 
-                    evidence = [
-                        {"source": r["source"], "chunk": r["content"][:200]}
-                        for r in kb_results
-                    ]
-
-                    # Conflict detection
-                    conflict_result = {"conflict": False, "conflicting_pairs": []}
-                    if len(kb_results) >= 2:
-                        try:
-                            conflict_result = detect_conflicts(kb_results)
-                        except Exception as e:
-                            logger.warning("Conflict detection failed (non-fatal): %s", e)
-
-                    conflict_note = ""
-                    if conflict_result["conflict"]:
-                        conflict_note = "NOTE: Conflicting information found in source documents. Surface the conflict in your answer rather than picking one side.\n\n"
+                    evidence = []
+                    if kb_context:
+                        evidence.append({
+                            "type": "knowledge_base",
+                            "content": kb_context.split(".")[0][:200],
+                        })
 
                     prompt = f"""You are the Information Security Officer at a technology company responding to a SOC2 vendor questionnaire.
 
@@ -203,7 +210,7 @@ STRICT RULES:
 - Be direct and affirmative — assume controls exist unless context says otherwise
 - Use the provided context to give specific answers
 
-{conflict_note}Context:
+Context:
 {context}
 
 Question:
@@ -245,27 +252,6 @@ Answer:"""
                             evidence=evidence,
                         )
 
-                        # Evidence Gap Detection
-                        try:
-                            kb_context_len = len(kb_context.strip()) if kb_context else 0
-                            if answer_obj.confidence < 0.60 and kb_context_len < 50:
-                                print(f"[evidence_gap] Flagged [{idx}]: "
-                                      f"confidence={answer_obj.confidence:.2f}, "
-                                      f"kb_context_len={kb_context_len}")
-                                answer_obj.answer = (
-                                    "[EVIDENCE GAP] No relevant policy document found "
-                                    "in knowledge base. Upload the relevant policy "
-                                    "document and re-run to generate this answer."
-                                )
-                                answer_obj.confidence = 0.0
-                                answer_obj.source = "evidence_gap"
-                                answer_obj.justification = (
-                                    "No supporting document found in knowledge base. "
-                                    "Upload relevant policy or evidence document and re-run."
-                                )
-                        except Exception as e:
-                            print(f"[evidence_gap] Check failed (non-fatal): {e}")
-
                     except Exception as e:
                         logger.error("LLM failed for question %d: %s", idx, e)
                         answer_obj = AnswerMetadata(
@@ -289,7 +275,8 @@ Answer:"""
                                     "source_text": source_text,
                                     "run_id": run_id,
                                     "org_id": org_id,
-                                    "documents": [r["source"] for r in kb_results],
+                                    "has_stale_sources": freshness_result["has_stale"],
+                                    "stale_sources": freshness_result["stale_sources"],
                                     "conflict_detected": conflict_result["conflict"],
                                     "conflicting_pairs": conflict_result["conflicting_pairs"],
                                 },
@@ -321,8 +308,10 @@ Answer:"""
                 "matched_question": getattr(answer_obj, "matched_question", None),
                 "evidence": getattr(answer_obj, "evidence", []),
                 "raw_context": context,
-                "documents": [r["source"] for r in kb_results] if kb_results else [],
+                "documents": [],
                 "source_text": source_text,
+                "has_stale_sources": freshness_result["has_stale"],
+                "stale_sources": freshness_result["stale_sources"],
                 "conflict_detected": conflict_result["conflict"],
                 "conflicting_pairs": conflict_result["conflicting_pairs"],
             }
