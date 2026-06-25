@@ -262,6 +262,19 @@ def check_source_freshness(kb_results, org_id):
     return {"has_stale": len(stale_sources) > 0, "stale_sources": stale_sources}
 
 
+def check_source_exists(source: str, org_id: str) -> bool:
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM knowledge_base WHERE source = %s AND org_id = %s LIMIT 1",
+        (source, org_id),
+    )
+    exists = cur.fetchone() is not None
+    cur.close()
+    conn.close()
+    return exists
+
+
 def delete_source(source: str, org_id: str) -> int:
     conn = get_conn()
     cur = conn.cursor()
