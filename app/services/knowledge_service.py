@@ -144,9 +144,10 @@ def get_uploaded_sources(org_id=None):
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT DISTINCT source
+            SELECT source, MIN(created_at) AS uploaded_at, COUNT(*) AS chunk_count
             FROM knowledge_base
             WHERE org_id = %s
+            GROUP BY source
             ORDER BY source;
         """, (org_id,))
 
@@ -155,7 +156,14 @@ def get_uploaded_sources(org_id=None):
         cur.close()
         conn.close()
 
-        return [r[0] for r in rows]
+        return [
+            {
+                "source": r[0],
+                "uploaded_at": r[1].isoformat() if r[1] else None,
+                "chunk_count": r[2],
+            }
+            for r in rows
+        ]
 
     except Exception as e:
         logger.error("get_uploaded_sources error: %s", str(e))

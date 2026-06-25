@@ -491,8 +491,8 @@ export default function SetupRun({ onNavigate }) {
     try {
       const res = await fetch(`${BASE_URL}/knowledge/sources`, { headers: getAuthHeaders() });
       if (res.ok) {
-        const files = await res.json();
-        setKnowledgeFiles(files || []);
+        const data = await res.json();
+        setKnowledgeFiles((data || []).map(item => typeof item === 'string' ? item : item.source));
       }
     } catch (err) {
       console.error('Failed to fetch knowledge list', err);
