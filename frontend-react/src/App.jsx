@@ -5,6 +5,7 @@ import AnswerLibrary from './components/AnswerLibrary';
 import AnswerReview from './components/AnswerReview';
 import AuditLogs from './components/AuditLogs';
 import UserManagement from './components/UserManagement';
+import KnowledgeBase from './components/KnowledgeBase';
 import CommandPalette from './components/CommandPalette';
 import Login from './components/Login';
 import { ToastProvider } from './components/ToastProvider';
@@ -64,6 +65,7 @@ export default function App() {
             {[
               { id: 'dashboard', label: 'Dashboard' },
               { id: 'run', label: 'Setup & Run' },
+              { id: 'knowledge', label: 'Knowledge Base' },
               { id: 'library', label: 'Answer Library' },
               { id: 'review', label: 'Answer Review' },
               { id: 'audit', label: 'Audit Logs' },
@@ -108,6 +110,7 @@ export default function App() {
           <div className="max-w-6xl mx-auto">
             {activeTab === 'dashboard' && <Dashboard onNavigate={setActiveTab} />}
             {activeTab === 'run' && <SetupRun onNavigate={setActiveTab}/>}
+            {activeTab === 'knowledge' && <KnowledgeBase />}
             {activeTab === 'library' && <AnswerLibrary />}
             {activeTab === 'review' && <AnswerReview />}
             {activeTab === 'audit' && <AuditLogs />}
