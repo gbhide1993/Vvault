@@ -144,7 +144,8 @@ def get_approved(request: Request, limit: int = 50):
 
 @router.get("/all")
 def get_all_cache(request: Request, run_id: str = None):
-    from app.services.cache_db import get_conn
+    from app.services.cache_db import get_conn, _ensure_kb_sources_column
+    _ensure_kb_sources_column()
     org_id = request.state.username
 
     conn = get_conn()
