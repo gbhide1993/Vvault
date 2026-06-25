@@ -144,7 +144,8 @@ def get_approved(request: Request, limit: int = 50):
 
 @router.get("/all")
 def get_all_cache(request: Request, run_id: str = None):
-    from app.services.cache_db import get_conn
+    from app.services.cache_db import get_conn, _ensure_kb_sources_column
+    _ensure_kb_sources_column()
     org_id = request.state.username
 
     conn = get_conn()
@@ -159,6 +160,7 @@ def get_all_cache(request: Request, run_id: str = None):
                    q.created_at, q.updated_at,
                    q.has_stale_sources, q.stale_sources,
                    q.conflict_detected, q.conflicting_pairs,
+                   q.kb_sources,
                    COUNT(e.id) AS evidence_count
             FROM qa_cache q
             LEFT JOIN evidence e ON e.cache_id = q.id AND e.org_id = %s
@@ -178,17 +180,15 @@ def get_all_cache(request: Request, run_id: str = None):
     for row in rows:
         item = dict(zip(columns, row))
 
-        # 🔥 ensure defaults
         if not item.get("status"):
             item["status"] = "pending"
-
         if not item.get("confidence"):
             item["confidence"] = 0
-
         item["has_stale_sources"] = item.get("has_stale_sources", False)
         item["stale_sources"] = item.get("stale_sources") or []
         item["conflict_detected"] = item.get("conflict_detected", False)
         item["conflicting_pairs"] = item.get("conflicting_pairs") or []
+        item["kb_sources"] = item.get("kb_sources") or []
 
         result.append(item)
 
@@ -198,7 +198,67 @@ def get_all_cache(request: Request, run_id: str = None):
     return result
 
 # ----------------------------------
-# USER MANAGEMENT 
+# 6. RELIANCE BOUNDARY CHECK
+# ----------------------------------
+@router.post("/check-reliance/{cache_id}")
+def check_reliance(cache_id: int, request: Request):
+    from app.services.cache_db import get_conn
+    from psycopg2.extras import RealDictCursor
+
+    org_id = request.state.username
+    record = get_record_by_id(cache_id)
+
+    if not record:
+        raise HTTPException(status_code=404, detail="Cache record not found")
+
+    kb_sources = record.get("kb_sources") or []
+    generated_at = record.get("created_at")
+
+    if not kb_sources:
+        return {"reliance_ok": True, "warnings": []}
+
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    warnings = []
+
+    for source in kb_sources:
+        cur.execute("""
+            SELECT source, MAX(created_at) AS latest_upload
+            FROM knowledge_base
+            WHERE source = %s AND org_id = %s
+            GROUP BY source
+        """, (source, org_id))
+        row = cur.fetchone()
+
+        if row is None:
+            warnings.append({
+                "source": source,
+                "status": "missing",
+                "message": "This document was deleted from the knowledge base after this answer was generated. The answer may no longer have a source.",
+                "generated_at": generated_at.isoformat() if generated_at else None,
+                "updated_at": None,
+            })
+        elif row["latest_upload"] and generated_at and row["latest_upload"] > generated_at:
+            warnings.append({
+                "source": source,
+                "status": "updated",
+                "message": "This document was re-uploaded after this answer was generated. The answer may not reflect the latest version.",
+                "generated_at": generated_at.isoformat() if generated_at else None,
+                "updated_at": row["latest_upload"].isoformat() if row["latest_upload"] else None,
+            })
+
+    cur.close()
+    conn.close()
+
+    return {
+        "reliance_ok": len(warnings) == 0,
+        "warnings": warnings,
+    }
+
+
+# ----------------------------------
+# USER MANAGEMENT
 # ----------------------------------
 
 

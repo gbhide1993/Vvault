@@ -1,5 +1,4 @@
 import logging
-from datetime import datetime
 from app.services.cache_db import get_conn
 from app.services.embedding_service import generate_embedding
 from psycopg2.extras import RealDictCursor
@@ -139,52 +138,48 @@ def retrieve_knowledge(question, top_k=3, org_id=None):
     return "\n\n".join([r["content"] for r in results])
 
 
-def retrieve_knowledge_with_sources(question, top_k=3, org_id=None):
-    conn = get_conn()
-    cur = conn.cursor(cursor_factory=RealDictCursor)
+def get_uploaded_sources(org_id=None):
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
 
-    embedding = generate_embedding(question)
-    embedding_str = "[" + ",".join(map(str, embedding)) + "]"
+        cur.execute("""
+            SELECT source, MIN(created_at) AS uploaded_at, COUNT(*) AS chunk_count
+            FROM knowledge_base
+            WHERE org_id = %s
+            GROUP BY source
+            ORDER BY source;
+        """, (org_id,))
 
-    query = """
-    SELECT content,
-           source,
-           1 - (embedding <=> %s::vector) AS similarity
-    FROM knowledge_base
-    WHERE org_id = %s
-    ORDER BY similarity DESC
-    LIMIT %s;
-    """
+        rows = cur.fetchall()
 
-    cur.execute(query, (embedding_str, org_id, top_k))
-    results = cur.fetchall()
+        cur.close()
+        conn.close()
 
-    cur.close()
-    conn.close()
+        return [
+            {
+                "source": r[0],
+                "uploaded_at": r[1].isoformat() if r[1] else None,
+                "chunk_count": r[2],
+            }
+            for r in rows
+        ]
 
-    return [{"content": r["content"], "source": r["source"], "similarity": float(r["similarity"])} for r in results]
-
+    except Exception as e:
+        logger.error("get_uploaded_sources error: %s", str(e))
+        return []
 
 def detect_conflicts(chunks):
     HARD_CONTRADICTIONS = [
-        # colors
-        ("white", "black"), ("white", "dark"),
-        ("black", "white"),
-        # access
-        ("never", "always"), ("never", "immediately"),
-        ("never", "automatically"), ("prohibited", "permitted"),
-        ("not permitted", "permitted"), ("not allowed", "allowed"),
-        ("mandatory", "optional"), ("required", "optional"),
-        ("no exceptions", "optional"), ("must not", "must"),
-        # timing
-        ("before", "after"), ("prior to", "upon"),
+        ("white", "black"), ("white", "dark"), ("black", "white"),
+        ("never", "always"), ("never", "immediately"), ("never", "automatically"),
+        ("prohibited", "permitted"), ("not permitted", "permitted"),
+        ("not allowed", "allowed"), ("mandatory", "optional"),
+        ("required", "optional"), ("no exceptions", "optional"),
+        ("must not", "must"), ("before", "after"), ("prior to", "upon"),
         ("immediately", "never"), ("first", "last"),
-        # approval
-        ("human review required", "automatically"),
-        ("sign-off required", "no sign-off"),
-        ("approved", "not approved"),
-        # boolean
-        ("true", "false"), ("yes", "no"),
+        ("human review required", "automatically"), ("sign-off required", "no sign-off"),
+        ("approved", "not approved"), ("true", "false"), ("yes", "no"),
         ("enabled", "disabled"), ("active", "inactive"),
     ]
 
@@ -198,8 +193,8 @@ def detect_conflicts(chunks):
         for j in range(i + 1, len(chunks)):
             chunk_a = chunks[i]
             chunk_b = chunks[j]
-            a = chunk_a["content"].lower()
-            b = chunk_b["content"].lower()
+            a = chunk_a.get("content", "").lower()
+            b = chunk_b.get("content", "").lower()
 
             words_a = set(w for w in re.findall(r"[a-z]+", a) if len(w) > 4)
             words_b = set(w for w in re.findall(r"[a-z]+", b) if len(w) > 4)
@@ -211,10 +206,10 @@ def detect_conflicts(chunks):
             for word_a, word_b in HARD_CONTRADICTIONS:
                 if (word_a in a and word_b in b) or (word_b in a and word_a in b):
                     conflicting_pairs.append({
-                        "source_a": chunk_a["source"],
-                        "excerpt_a": chunk_a["content"][:200],
-                        "source_b": chunk_b["source"],
-                        "excerpt_b": chunk_b["content"][:200],
+                        "source_a": chunk_a.get("source", ""),
+                        "excerpt_a": chunk_a.get("content", "")[:200],
+                        "source_b": chunk_b.get("source", ""),
+                        "excerpt_b": chunk_b.get("content", "")[:200],
                     })
                     conflict_detected = True
                     break
@@ -222,51 +217,50 @@ def detect_conflicts(chunks):
     return {"conflict": conflict_detected, "conflicting_pairs": conflicting_pairs}
 
 
-def get_uploaded_sources(org_id=None):
+def check_source_freshness(kb_results, org_id):
+    from datetime import datetime, timezone, timedelta
+    stale_sources = []
+    seen = set()
+
     try:
         conn = get_conn()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        cur.execute("""
-            SELECT source,
-                   MIN(created_at) AS uploaded_at,
-                   COUNT(*) AS chunk_count
-            FROM knowledge_base
-            WHERE org_id = %s
-            GROUP BY source
-            ORDER BY MIN(created_at) DESC;
-        """, (org_id,))
+        for item in kb_results:
+            source = item.get("source")
+            if not source or source in seen:
+                continue
+            seen.add(source)
 
-        rows = cur.fetchall()
+            try:
+                cur.execute("""
+                    SELECT source, MIN(created_at) as first_uploaded
+                    FROM knowledge_base WHERE source = %s AND org_id = %s
+                    GROUP BY source;
+                """, (source, org_id))
+                row = cur.fetchone()
+                if row and row["first_uploaded"]:
+                    first_uploaded = row["first_uploaded"]
+                    if first_uploaded.tzinfo is None:
+                        first_uploaded = first_uploaded.replace(tzinfo=timezone.utc)
+                    age_days = (datetime.now(timezone.utc) - first_uploaded).days
+                    if age_days > 90:
+                        stale_sources.append({
+                            "source": source,
+                            "uploaded_at": first_uploaded.isoformat(),
+                            "age_days": age_days,
+                        })
+            except Exception as e:
+                logger.error("Freshness check failed for source %s: %s", source, e)
 
         cur.close()
         conn.close()
 
-        return [
-            {
-                "source": r["source"],
-                "uploaded_at": r["uploaded_at"].isoformat() if r["uploaded_at"] else None,
-                "chunk_count": r["chunk_count"],
-            }
-            for r in rows
-        ]
-
     except Exception as e:
-        logger.error("get_uploaded_sources error: %s", str(e))
-        return []
+        logger.error("check_source_freshness DB error: %s", e)
 
+    return {"has_stale": len(stale_sources) > 0, "stale_sources": stale_sources}
 
-def check_source_exists(source: str, org_id: str) -> bool:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "SELECT COUNT(*) FROM knowledge_base WHERE source = %s AND org_id = %s",
-        (source, org_id),
-    )
-    count = cur.fetchone()[0]
-    cur.close()
-    conn.close()
-    return count > 0
 
 def delete_source(source: str, org_id: str) -> int:
     conn = get_conn()
@@ -303,24 +297,23 @@ def retrieve_knowledge_with_embedding(question_embedding, top_k=3, org_id=None):
     return "\n\n".join([r["content"] for r in results])
 
 
-def retrieve_knowledge_rows_with_embedding(embedding: list, top_k: int = 3, org_id: str = None) -> list:
-    """Returns structured list of dicts with content, source, similarity — for freshness checking."""
-    try:
-        conn = get_conn()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-        embedding_str = "[" + ",".join(map(str, embedding)) + "]"
-        cur.execute("""
-        SELECT content, source, 1 - (embedding <=> %s::vector) AS similarity
-        FROM knowledge_base WHERE org_id = %s
-        ORDER BY similarity DESC LIMIT %s;
-        """, (embedding_str, org_id, top_k))
-        results = cur.fetchall()
-        cur.close()
-        conn.close()
-        return [dict(r) for r in results] if results else []
-    except Exception as e:
-        logger.error("retrieve_knowledge_rows_with_embedding failed: %s", e)
-        return []
+def retrieve_knowledge_rows_with_embedding(question_embedding, top_k=3, org_id=None):
+    """Return full rows (content + source) for the top-k KB matches."""
+    conn = get_conn()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    embedding_str = "[" + ",".join(map(str, question_embedding)) + "]"
+    cur.execute("""
+    SELECT content, source, created_at,
+           1 - (embedding <=> %s::vector) AS similarity
+    FROM knowledge_base
+    WHERE org_id = %s
+    ORDER BY similarity DESC
+    LIMIT %s;
+    """, (embedding_str, org_id, top_k))
+    results = cur.fetchall()
+    cur.close()
+    conn.close()
+    return [dict(r) for r in results]
 
 
 def retrieve_knowledge_by_embedding(embedding: list, top_k: int = 3, org_id: str = None) -> str:
@@ -345,58 +338,3 @@ def retrieve_knowledge_by_embedding(embedding: list, top_k: int = 3, org_id: str
         import logging
         logging.getLogger(__name__).error("retrieve_knowledge_by_embedding failed: %s", e)
         return ""
-
-
-def check_source_freshness(kb_results, org_id):
-    """
-    Takes list of dicts: [{"content": "...", "source": "filename.pdf", "similarity": 0.91}]
-    Checks upload age for each unique source. Returns stale sources (> 90 days old).
-    """
-    stale_sources = []
-    seen = set()
-
-    try:
-        conn = get_conn()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-
-        for item in kb_results:
-            source = item.get("source")
-            if not source or source in seen:
-                continue
-            seen.add(source)
-
-            try:
-                cur.execute(
-                    """
-                    SELECT source, MIN(created_at) as first_uploaded
-                    FROM knowledge_base WHERE source = %s AND org_id = %s
-                    GROUP BY source;
-                    """,
-                    (source, org_id),
-                )
-                row = cur.fetchone()
-                if row and row["first_uploaded"]:
-                    first_uploaded = row["first_uploaded"]
-                    # Ensure timezone-naive for comparison
-                    if hasattr(first_uploaded, "tzinfo") and first_uploaded.tzinfo is not None:
-                        first_uploaded = first_uploaded.replace(tzinfo=None)
-                    age_days = (datetime.utcnow() - first_uploaded).days
-                    if age_days > 90:
-                        stale_sources.append({
-                            "source": source,
-                            "uploaded_at": row["first_uploaded"].strftime("%Y-%m-%d"),
-                            "age_days": age_days,
-                        })
-            except Exception as e:
-                logger.error("check_source_freshness query failed for source %s: %s", source, e)
-
-        cur.close()
-        conn.close()
-
-    except Exception as e:
-        logger.error("check_source_freshness connection failed: %s", e)
-
-    return {
-        "has_stale": len(stale_sources) > 0,
-        "stale_sources": stale_sources,
-    }

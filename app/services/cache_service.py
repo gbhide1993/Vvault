@@ -98,6 +98,7 @@ def set_cached_answer(question: str, data, org_id=None, embedding=None):
         stale_sources=data.get("stale_sources", []),
         conflict_detected=data.get("conflict_detected", False),
         conflicting_pairs=data.get("conflicting_pairs", []),
+        kb_sources=data.get("kb_sources", []),
     )
 
 
@@ -161,4 +162,5 @@ def set_cached_answer_with_embedding(question, question_embedding, data):
         stale_sources=data.get("stale_sources", []) if isinstance(data, dict) else [],
         conflict_detected=data.get("conflict_detected", False) if isinstance(data, dict) else False,
         conflicting_pairs=data.get("conflicting_pairs", []) if isinstance(data, dict) else [],
+        kb_sources=data.get("kb_sources", []) if isinstance(data, dict) else [],
     )

@@ -83,6 +83,51 @@ function EvidencePanel({ cacheId, getAuthHeaders, onEvidenceChange }) {
   );
 }
 
+// --- SUB-COMPONENT: RELIANCE WARNING MODAL ---
+function RelianceModal({ warnings, onApproveAnyway, onCancel }) {
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: '#1a1a1a', border: '1px solid #f97316', borderRadius: 10, padding: 28, maxWidth: 520, width: '90%' }}>
+        <h3 style={{ color: '#f97316', fontSize: 16, fontWeight: 700, marginBottom: 6 }}>Source Documents Changed</h3>
+        <p style={{ color: '#94a3b8', fontSize: 12, marginBottom: 16 }}>
+          One or more source documents that grounded this answer have changed since it was generated.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+          {warnings.map((w, i) => (
+            <div key={i} style={{ background: '#111', border: '1px solid #7c3aed33', borderLeft: '3px solid #f97316', borderRadius: 6, padding: '10px 14px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                <span style={{ color: '#f1f5f9', fontWeight: 600, fontSize: 13 }}>{w.source}</span>
+                <span style={{
+                  background: w.status === 'missing' ? '#7f1d1d' : '#431407',
+                  color: w.status === 'missing' ? '#fca5a5' : '#fed7aa',
+                  fontSize: 10, fontWeight: 700, padding: '1px 6px', borderRadius: 4, textTransform: 'uppercase'
+                }}>
+                  {w.status === 'missing' ? 'Deleted' : 'Updated'}
+                </span>
+              </div>
+              <p style={{ color: '#94a3b8', fontSize: 11, marginBottom: 6 }}>{w.message}</p>
+              <div style={{ fontSize: 10, color: '#64748b' }}>
+                <span>Generated: {w.generated_at ? new Date(w.generated_at).toLocaleDateString() : '—'}</span>
+                {w.updated_at && (
+                  <span style={{ marginLeft: 12 }}>Re-uploaded: {new Date(w.updated_at).toLocaleDateString()}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onCancel} style={{ background: '#374151', color: '#d1d5db', border: 'none', borderRadius: 6, padding: '8px 18px', cursor: 'pointer', fontSize: 13 }}>
+            Cancel
+          </button>
+          <button onClick={onApproveAnyway} style={{ background: '#f97316', color: '#fff', border: 'none', borderRadius: 6, padding: '8px 18px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+            Approve Anyway
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // --- MAIN COMPONENT: ANSWER REVIEW ---
 export default function AnswerReview() {
   const [runs, setRuns] = useState([]);
@@ -103,6 +148,7 @@ export default function AnswerReview() {
   const [expandedStale, setExpandedStale] = useState(new Set());
   const [expandedSource, setExpandedSource] = useState({});
   const [expandedConflict, setExpandedConflict] = useState(new Set());
+  const [relianceModal, setRelianceModal] = useState(null);
 
   const userRole = localStorage.getItem('role');
   const getAuthHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem('token')}` });
@@ -201,6 +247,27 @@ export default function AnswerReview() {
     setExpandedConflict(newSet);
   };
 
+  const doApprove = async (cacheId) => {
+    await fetch(`${BASE_URL}/cache/approve/${cacheId}`, { method: 'POST', headers: getAuthHeaders() });
+    fetchPreviewData(currentRunId);
+  };
+
+  const handleApprove = async (cacheId) => {
+    if (userRole !== 'admin') return alert('Only admins can approve.');
+    try {
+      const res = await fetch(`${BASE_URL}/cache/check-reliance/${cacheId}`, { method: 'POST', headers: getAuthHeaders() });
+      if (!res.ok) { await doApprove(cacheId); return; }
+      const result = await res.json();
+      if (result.reliance_ok) {
+        await doApprove(cacheId);
+      } else {
+        setRelianceModal({ cacheId, warnings: result.warnings });
+      }
+    } catch {
+      await doApprove(cacheId);
+    }
+  };
+
   const handleBulkAction = async (action) => {
     if (userRole !== 'admin') return alert('Only admins can perform this action.');
     if (selectedIds.size === 0) return alert('Select items first.');
@@ -231,8 +298,17 @@ export default function AnswerReview() {
   };
 
   return (
-    // Outer container matches viewport height minus the padding
     <div className="h-[calc(100vh-4rem)] flex flex-col">
+      {relianceModal && (
+        <RelianceModal
+          warnings={relianceModal.warnings}
+          onCancel={() => setRelianceModal(null)}
+          onApproveAnyway={async () => {
+            await doApprove(relianceModal.cacheId);
+            setRelianceModal(null);
+          }}
+        />
+      )}
       
       {/* 1. FROZEN TOP SECTION */}
       <div className="flex-none space-y-6 mb-6">
@@ -418,9 +494,19 @@ export default function AnswerReview() {
                       })()}
                     </TableCell>
                     <TableCell className="text-center">
-                      <Badge variant={item.status === 'approved' ? 'success' : item.status === 'rejected' ? 'danger' : 'warning'}>
-                        {item.status || "pending"}
-                      </Badge>
+                      <div className="flex flex-col items-center gap-1">
+                        <Badge variant={item.status === 'approved' ? 'success' : item.status === 'rejected' ? 'danger' : 'warning'}>
+                          {item.status || "pending"}
+                        </Badge>
+                        {item.status === 'pending' && userRole === 'admin' && (
+                          <button
+                            onClick={() => handleApprove(item.id)}
+                            style={{ fontSize: 10, background: '#166534', color: '#bbf7d0', border: '1px solid #15803d', borderRadius: 4, padding: '2px 8px', cursor: 'pointer', marginTop: 2 }}
+                          >
+                            Approve
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-center">
                       <Button onClick={() => toggleEvidence(item.id)} variant="secondary" size="sm">

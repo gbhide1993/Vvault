@@ -1,5 +1,4 @@
 import os
-import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
@@ -46,7 +45,7 @@ def fetch_similar(embedding, threshold=0.85, org_id=None):
 
 
 def _ensure_extra_columns():
-    """Ensure conflict and freshness columns exist on qa_cache."""
+    """Ensure conflict, freshness, and kb_sources columns exist on qa_cache."""
     try:
         conn = get_conn()
         cur = conn.cursor()
@@ -54,6 +53,7 @@ def _ensure_extra_columns():
         cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS stale_sources jsonb DEFAULT '[]';")
         cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS conflict_detected boolean DEFAULT false;")
         cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS conflicting_pairs jsonb DEFAULT '[]';")
+        cur.execute("ALTER TABLE qa_cache ADD COLUMN IF NOT EXISTS kb_sources jsonb DEFAULT '[]';")
         conn.commit()
         cur.close()
         conn.close()
@@ -62,14 +62,21 @@ def _ensure_extra_columns():
         logging.getLogger(__name__).error("_ensure_extra_columns failed: %s", e)
 
 
-def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", has_stale_sources=False, stale_sources=None, conflict_detected=False, conflicting_pairs=None):
+def _ensure_kb_sources_column():
+    _ensure_extra_columns()
+
+
+def insert_cache(question, question_hash, embedding, answer, confidence, status, source, justification="", raw_context="", matched_question=None, source_text=None, run_id=None, org_id="default", has_stale_sources=False, stale_sources=None, conflict_detected=False, conflicting_pairs=None, kb_sources=None):
     if stale_sources is None:
         stale_sources = []
     if conflicting_pairs is None:
         conflicting_pairs = []
+    if kb_sources is None:
+        kb_sources = []
 
     _ensure_extra_columns()
 
+    import json
     conn = get_conn()
     cur = conn.cursor()
 
@@ -93,14 +100,15 @@ def insert_cache(question, question_hash, embedding, answer, confidence, status,
         has_stale_sources,
         stale_sources,
         conflict_detected,
-        conflicting_pairs
+        conflicting_pairs,
+        kb_sources
     )
-    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+    VALUES (%s, %s, %s::vector, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
     """
 
     cur.execute(
         query,
-        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id, has_stale_sources, json.dumps(stale_sources), conflict_detected, json.dumps(conflicting_pairs)),
+        (question, question_hash, embedding_str, answer, confidence, status, source, justification, raw_context, matched_question, source_text, run_id, org_id, has_stale_sources, json.dumps(stale_sources), conflict_detected, json.dumps(conflicting_pairs), json.dumps(kb_sources)),
     )
 
     conn.commit()

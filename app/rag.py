@@ -19,7 +19,7 @@ from app.services.cache_service import (
 from app.services.dropdown_service import detect_dropdown_columns, map_answer_to_option
 from app.models.answer_model import AnswerMetadata
 from app.services.confidence_service import build_confidence
-from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_rows_with_embedding, check_source_freshness
+from app.services.knowledge_service import retrieve_knowledge, retrieve_knowledge_with_embedding, retrieve_knowledge_rows_with_embedding, detect_conflicts, check_source_freshness
 from app.services.retrieval_service import retrieve_top_k_with_embedding
 from app.services.job_service import create_job, update_job_progress, complete_job, fail_job
 from app.services.embedding_service import generate_embedding
@@ -100,6 +100,7 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
         for row in rows:
             source_text = ""
             context = ""
+            kb_sources = []
             freshness_result = {"has_stale": False, "stale_sources": []}
             conflict_result = {"conflict": False, "conflicting_pairs": []}
             _q_start = time.time()
@@ -177,8 +178,9 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                         except Exception as e:
                             logger.error("KB retrieval failed for question %d: %s", idx, e)
 
+                    kb_sources = list({r["source"] for r in kb_results if r.get("source")})
+
                     try:
-                        from app.services.knowledge_service import detect_conflicts
                         conflict_result = detect_conflicts(kb_results)
                     except Exception as e:
                         logger.error("Conflict detection failed for question %d: %s", idx, e)
@@ -187,7 +189,6 @@ def process_questionnaire(rows, sheet_data, run_id, org_id):
                         freshness_result = check_source_freshness(kb_results, org_id)
                     except Exception as e:
                         logger.error("Freshness check failed for question %d: %s", idx, e)
-                        freshness_result = {"has_stale": False, "stale_sources": []}
 
                     retrieve_top_k_with_embedding(question_embedding) if question_embedding is not None else ""
 
@@ -279,6 +280,7 @@ Answer:"""
                                     "stale_sources": freshness_result["stale_sources"],
                                     "conflict_detected": conflict_result["conflict"],
                                     "conflicting_pairs": conflict_result["conflicting_pairs"],
+                                    "kb_sources": kb_sources,
                                 },
                                 org_id=org_id,
                                 embedding=question_embedding,
@@ -314,6 +316,7 @@ Answer:"""
                 "stale_sources": freshness_result["stale_sources"],
                 "conflict_detected": conflict_result["conflict"],
                 "conflicting_pairs": conflict_result["conflicting_pairs"],
+                "kb_sources": kb_sources,
             }
 
             src = answers[idx].get("source", "fallback")
